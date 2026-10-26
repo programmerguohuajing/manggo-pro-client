@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QSpinBox, QSlider, QPushButton, QCheckBox, QFrame,
     QMessageBox, QTextEdit, QStackedWidget, QListWidget, QListWidgetItem,
-    QGraphicsDropShadowEffect, QScrollArea, QSizePolicy
+    QGraphicsDropShadowEffect, QScrollArea, QSizePolicy, QListView
 )
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
 import pyperclip
@@ -162,7 +162,36 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
 }
 QComboBox::drop-down {
     border: none;
-    width: 24px;
+    width: 26px;
+}
+
+/* 下拉菜单弹出层 (解决暗黑模式下全黑看不到文字的问题) */
+QComboBox QAbstractItemView, QListView {
+    background-color: #FFFFFF;
+    color: #111827;
+    border: 1px solid #D1D5DB;
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: #FFEDD5;
+    selection-color: #C2410C;
+}
+QComboBox QAbstractItemView::item, QListView::item {
+    min-height: 32px;
+    padding: 6px 12px;
+    color: #1F2937;
+    background-color: #FFFFFF;
+    border-radius: 6px;
+    font-size: 12px;
+}
+QComboBox QAbstractItemView::item:hover, QListView::item:hover {
+    background-color: #FFF7ED;
+    color: #EA580C;
+}
+QComboBox QAbstractItemView::item:selected, QListView::item:selected {
+    background-color: #FFEDD5;
+    color: #C2410C;
+    font-weight: bold;
 }
 
 /* 按钮规范 */
@@ -427,8 +456,8 @@ class SettingsWindow(QWidget):
         super().__init__(parent)
         self.setObjectName("SettingsWindow")
         self.setWindowTitle("Manggo Pro - 偏好设置")
-        self.resize(720, 600)
-        self.setMinimumSize(680, 560)
+        self.resize(780, 620)
+        self.setMinimumSize(700, 560)
         self.setStyleSheet(SETTINGS_STYLESHEET)
 
         self.config = load_config()
@@ -627,6 +656,7 @@ class SettingsWindow(QWidget):
         cs_l.addWidget(lbl_eng_title)
 
         self.cmb_engine = QComboBox()
+        self.cmb_engine.setView(QListView())
         self.cmb_engine.addItems([
             "⚡ 内置极速通道 (免 API Key，国内毫秒级响应，开箱即用)",
             "🧠 自定义大模型 Pro 通道 (DeepSeek / 通义千问 / OpenAI / 本地 Ollama)"
@@ -648,6 +678,7 @@ class SettingsWindow(QWidget):
         h_preset.addWidget(lbl_preset)
 
         self.cmb_preset = QComboBox()
+        self.cmb_preset.setView(QListView())
         self.cmb_preset.addItem("—— 请选择预设模板 ——")
         for name in PRESETS.keys():
             self.cmb_preset.addItem(name)
@@ -689,6 +720,7 @@ class SettingsWindow(QWidget):
         h_prompt_hdr.addStretch()
 
         self.cmb_prompt_tpl = QComboBox()
+        self.cmb_prompt_tpl.setView(QListView())
         self.cmb_prompt_tpl.addItem("—— 选用表达风格模板 ——")
         for tpl_name in PROMPT_TEMPLATES.keys():
             self.cmb_prompt_tpl.addItem(tpl_name)
@@ -708,6 +740,11 @@ class SettingsWindow(QWidget):
 
     # ---------------- 选项卡 3: 全局热键 ----------------
     def _build_hotkeys_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
         container = QWidget()
         l = QVBoxLayout(container)
         l.setContentsMargins(24, 20, 24, 20)
@@ -718,43 +755,53 @@ class SettingsWindow(QWidget):
         c_layout = QVBoxLayout(card)
         c_layout.setSpacing(12)
 
-        lbl_t = QLabel("全局热键速查表")
+        lbl_t = QLabel("全局热键速查表 (全套对齐原版 Manggo)")
         lbl_t.setProperty("class", "SectionTitle")
         c_layout.addWidget(lbl_t)
 
         hotkeys = [
-            ("连续 3 次空格 (Space)", "输入框就地转译", "在任意光标输入框输入中文后连击 3 次空格即可就地替换为英文"),
-            ("Alt + Q", "划词悬浮翻译", "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片"),
-            ("Alt + W", "截图 OCR 翻译", "全屏十字光标拖拽框选，毫秒级提取图像中文字并翻译对照"),
-            ("Alt + D", "呼出翻译工作台", "双栏沉浸式翻译面板，中英互译、生词本与长文本翻译"),
-            ("Ctrl + Enter", "工作台立即翻译", "在主翻译面板编辑框内一键提交翻译请求")
+            ("连续 3 次空格 (Space)", "输入框就地转译 (Pro 核心特性)", "在任意应用（微信、Word、浏览器、代码编辑器）输入中文后连击 3 次空格，自动消除空格并将文字就地替换为英文。"),
+            ("Alt + D  或  Alt + Q", "划选文本悬浮翻译", "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片，支持朗读、复制、存入生词本。"),
+            ("Alt + X  或  Alt + W", "全屏截图 OCR 文字识别", "全屏十字光标框选任意区域，毫秒级提取图像中的中英文文字并自动进行翻译对照。"),
+            ("Alt + Space", "语音输入与实时听写", "唤起麦克风拾音指示气泡，语音转文字直接打字上屏。"),
+            ("Alt + Shift + D", "呼出桌面翻译工作台", "沉浸式双栏对照翻译工作台，支持中英双向互译、生词本检索与长文本排版翻译。"),
+            ("双击系统托盘图标", "打开偏好设置中心", "随时快速呼出本设置面板，调节连击灵敏度与切换大模型 Pro 通道。"),
+            ("Ctrl + Enter", "工作台立即翻译", "在主翻译工作台原文编辑框内一键提交翻译请求。")
         ]
 
         for key, name, desc in hotkeys:
             row = QFrame()
-            row.setStyleSheet("background-color: #F9FAFB; border-radius: 8px; padding: 6px 10px;")
-            r_l = QHBoxLayout(row)
-            r_l.setContentsMargins(8, 4, 8, 4)
+            row.setStyleSheet("background-color: #F9FAFB; border: 1px solid #F3F4F6; border-radius: 8px; padding: 10px 12px;")
+            r_l = QVBoxLayout(row)
+            r_l.setContentsMargins(10, 8, 10, 8)
+            r_l.setSpacing(6)
+
+            # 顶部行：功能名称 + 快捷键徽章
+            h_top = QHBoxLayout()
+            lbl_name = QLabel(name)
+            lbl_name.setStyleSheet("font-weight: bold; color: #1F2937; font-size: 13px;")
+            h_top.addWidget(lbl_name)
+
+            h_top.addStretch()
 
             lbl_badge = QLabel(key)
-            lbl_badge.setStyleSheet("background: #EA580C; color: white; font-weight: bold; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
-            r_l.addWidget(lbl_badge)
+            lbl_badge.setStyleSheet("background: #FFF7ED; color: #EA580C; border: 1px solid #FDBA74; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: Consolas, 'Segoe UI', monospace;")
+            h_top.addWidget(lbl_badge)
+            r_l.addLayout(h_top)
 
-            lbl_name = QLabel(name)
-            lbl_name.setStyleSheet("font-weight: bold; color: #1F2937; font-size: 12px; margin-left: 6px;")
-            r_l.addWidget(lbl_name)
-
-            r_l.addStretch()
-
+            # 次行：完整说明文本（开启自适应折行，彻底杜绝文字截断）
             lbl_d = QLabel(desc)
-            lbl_d.setStyleSheet("color: #6B7280; font-size: 11px;")
+            lbl_d.setStyleSheet("color: #6B7280; font-size: 12px; line-height: 1.4;")
+            lbl_d.setWordWrap(True)
             r_l.addWidget(lbl_d)
 
             c_layout.addWidget(row)
 
         l.addWidget(card)
         l.addStretch()
-        return container
+
+        scroll.setWidget(container)
+        return scroll
 
     # ---------------- 选项卡 4: 关于与状态 ----------------
     def _build_about_tab(self) -> QWidget:
