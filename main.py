@@ -194,7 +194,7 @@ class AppCoordinator(QObject):
 
 def main():
     # Windows 单实例互斥量检测，防止多个实例同时运行导致键盘钩子冲突
-    mutex = win32event.CreateMutex(None, False, "Global\\ManggoProClient_SingleInstance_Mutex")
+    mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
         # 已有实例在运行，直接退出
         sys.exit(0)
