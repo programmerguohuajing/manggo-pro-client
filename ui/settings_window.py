@@ -250,6 +250,12 @@ QSlider::handle:horizontal:hover {
 }
 """
 
+def _create_label(text: str, css_class: str = "", parent=None) -> QLabel:
+    lbl = QLabel(text, parent)
+    if css_class:
+        lbl.setProperty("class", css_class)
+    return lbl
+
 class SettingsWindow(QWidget):
     config_changed = Signal(dict)
     open_main_requested = Signal()
@@ -487,14 +493,14 @@ class SettingsWindow(QWidget):
         cl_layout.addLayout(h_preset)
 
         # API Base URL
-        cl_layout.addWidget(QLabel("API Base URL:", property="class", propertyValue="FieldLabel"))
+        cl_layout.addWidget(_create_label("API Base URL:", "FieldLabel"))
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://api.deepseek.com/v1")
         cl_layout.addWidget(self.txt_url)
 
         # API Key
         h_key_title = QHBoxLayout()
-        h_key_title.addWidget(QLabel("API Key (密钥安全加密存储):", property="class", propertyValue="FieldLabel"))
+        h_key_title.addWidget(_create_label("API Key (密钥安全加密存储):", "FieldLabel"))
         h_key_title.addStretch()
 
         self.btn_toggle_key = QPushButton("👁️ 显示密钥")
@@ -509,14 +515,14 @@ class SettingsWindow(QWidget):
         cl_layout.addWidget(self.txt_key)
 
         # 模型名称
-        cl_layout.addWidget(QLabel("Model 名称:", property="class", propertyValue="FieldLabel"))
+        cl_layout.addWidget(_create_label("Model 名称:", "FieldLabel"))
         self.txt_model = QLineEdit()
         self.txt_model.setPlaceholderText("deepseek-chat")
         cl_layout.addWidget(self.txt_model)
 
         # Prompt 提示词与风格选择
         h_prompt_hdr = QHBoxLayout()
-        h_prompt_hdr.addWidget(QLabel("翻译 Prompt (风格定制):", property="class", propertyValue="FieldLabel"))
+        h_prompt_hdr.addWidget(_create_label("翻译 Prompt (风格定制):", "FieldLabel"))
         h_prompt_hdr.addStretch()
 
         self.cmb_prompt_tpl = QComboBox()
