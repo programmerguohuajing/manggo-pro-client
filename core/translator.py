@@ -1,5 +1,5 @@
 """
-翻译引擎模块：支持内置免费通道与大模型 Pro 通道
+翻译引擎模块：支持内置免费通道与大模型 Pro 通道，支持中英双向互译与语言自动检测
 """
 import json
 import re
@@ -7,8 +7,15 @@ import urllib.parse
 import urllib.request
 from typing import Optional, Dict, Any
 
+def is_predominantly_chinese(text: str) -> bool:
+    zh_chars = len(re.findall(r'[\u4e00-\u9fa5]', text))
+    total_chars = len(text.strip())
+    if total_chars == 0:
+        return False
+    return (zh_chars / total_chars) > 0.2
+
 class BaseTranslator:
-    def translate(self, text: str, target_lang: str = "en") -> str:
+    def translate(self, text: str, source_lang: str = "auto", target_lang: str = "auto") -> str:
         raise NotImplementedError
 
 class FreeTranslator(BaseTranslator):
@@ -18,14 +25,18 @@ class FreeTranslator(BaseTranslator):
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-    def translate(self, text: str, target_lang: str = "en") -> str:
+    def translate(self, text: str, source_lang: str = "auto", target_lang: str = "auto") -> str:
         clean_text = text.strip()
         if not clean_text:
             return ""
 
+        # 智能判定目标语言
+        if target_lang == "auto":
+            target_lang = "en" if is_predominantly_chinese(clean_text) else "zh-CN"
+
         # 尝试 Google 网页翻译中继接口
         try:
-            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(clean_text)}"
+            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q={urllib.parse.quote(clean_text)}"
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -37,8 +48,9 @@ class FreeTranslator(BaseTranslator):
 
         # 备选：MyMemory 免费公开接口
         try:
-            langpair = f"zh|{target_lang}" if any('\u4e00' <= char <= '\u9fff' for char in clean_text) else f"auto|{target_lang}"
-            url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(clean_text)}&langpair={langpair}"
+            sl = "zh" if target_lang == "en" else "en"
+            tl = target_lang if target_lang != "zh-CN" else "zh"
+            url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(clean_text)}&langpair={sl}|{tl}"
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
@@ -60,17 +72,22 @@ class LLMTranslator(BaseTranslator):
             self.api_url = f"{self.api_url}/chat/completions"
         self.api_key = api_key
         self.model_name = model_name
-        self.style_prompt = style_prompt or "Translate the following Chinese text into natural, idiomatic English. Return ONLY the translation without any explanation, markdown or quotes."
+        self.style_prompt = style_prompt or "You are an expert bilingual translator. Translate the given text accurately and naturally. If the text is Chinese, translate it to English. If it is English, translate it to Chinese. Output ONLY the translation without any quotes or explanations."
 
-    def translate(self, text: str, target_lang: str = "en") -> str:
+    def translate(self, text: str, source_lang: str = "auto", target_lang: str = "auto") -> str:
         clean_text = text.strip()
         if not clean_text:
             return ""
 
+        if target_lang == "auto":
+            target_lang = "English" if is_predominantly_chinese(clean_text) else "Simplified Chinese"
+
+        sys_prompt = f"{self.style_prompt} Please translate into {target_lang}."
+
         payload = {
             "model": self.model_name,
             "messages": [
-                {"role": "system", "content": self.style_prompt},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": clean_text}
             ],
             "temperature": 0.3
@@ -89,14 +106,12 @@ class LLMTranslator(BaseTranslator):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 out = res["choices"][0]["message"]["content"].strip()
-                # 剥离多余的双引号包裹
                 if (out.startswith('"') and out.endswith('"')) or (out.startswith("'") and out.endswith("'")):
                     out = out[1:-1].strip()
                 return out
         except Exception as e:
             print(f"[LLM] Error: {e}")
-            # 降级到免费源
-            return FreeTranslator().translate(clean_text, target_lang)
+            return FreeTranslator().translate(clean_text, source_lang, target_lang)
 
 class TranslationManager:
     """
@@ -122,6 +137,9 @@ class TranslationManager:
     def update_config(self, new_config: Dict[str, Any]):
         self.config.update(new_config)
         self._init_engine()
+
+    def translate(self, text: str, source_lang: str = "auto", target_lang: str = "auto") -> str:
+        return self.active_translator.translate(text, source_lang, target_lang)
 
     def translate_to_en(self, text: str) -> str:
         return self.active_translator.translate(text, target_lang="en")

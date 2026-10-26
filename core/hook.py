@@ -1,5 +1,5 @@
 """
-全局低级键盘钩子：监听连续三次空格（Triple-Space）并触发原地转译
+全局低级键盘钩子：监听连续三次空格及全局快捷键 (Alt+Q, Alt+W, Alt+D)
 """
 import ctypes
 from ctypes import wintypes
@@ -12,10 +12,16 @@ kernel32 = ctypes.windll.kernel32
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
 WM_SYSKEYDOWN = 0x0104
-VK_SPACE = 0x20
+WM_SYSKEYUP = 0x0105
 
-# 定义低级键盘钩子结构体
+VK_SPACE = 0x20
+VK_MENU = 0x12  # Alt
+VK_Q = 0x51     # Q (划词翻译)
+VK_W = 0x57     # W (截图翻译)
+VK_D = 0x44     # D (主窗口)
+
 class KBDLLHOOKSTRUCT(ctypes.Structure):
     _fields_ = [
         ("vkCode", wintypes.DWORD),
@@ -25,37 +31,72 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
         ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))
     ]
 
-# 钩子回调原型
 HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wintypes.WPARAM, ctypes.POINTER(KBDLLHOOKSTRUCT))
 
 class GlobalKeyboardHook:
-    def __init__(self, on_triple_space: Callable[[], None], max_interval: float = 0.55):
+    def __init__(
+        self,
+        on_triple_space: Optional[Callable[[], None]] = None,
+        on_selection_translate: Optional[Callable[[], None]] = None,
+        on_screenshot_translate: Optional[Callable[[], None]] = None,
+        on_open_main: Optional[Callable[[], None]] = None,
+        max_interval: float = 0.55
+    ):
         self.on_triple_space = on_triple_space
+        self.on_selection_translate = on_selection_translate
+        self.on_screenshot_translate = on_screenshot_translate
+        self.on_open_main = on_open_main
         self.max_interval = max_interval
+
         self.space_timestamps = []
+        self.alt_pressed = False
         self.hook_id = None
         self._thread = None
         self._running = False
-        self._hook_proc_ref = None  # 防止回调函数被 Python GC 回收
+        self._hook_proc_ref = None
 
     def _hook_callback(self, nCode, wParam, lParam):
-        if nCode >= 0 and wParam in (WM_KEYDOWN, WM_SYSKEYDOWN):
+        if nCode >= 0:
             vk_code = lParam.contents.vkCode
-            now = time.time()
+            is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
+            is_up = wParam in (WM_KEYUP, WM_SYSKEYUP)
 
-            if vk_code == VK_SPACE:
-                # 过滤超时的时间戳
-                self.space_timestamps = [t for t in self.space_timestamps if now - t <= self.max_interval]
-                self.space_timestamps.append(now)
+            # 追踪 Alt 状态
+            if vk_code in (VK_MENU, 0xA4, 0xA5):
+                self.alt_pressed = is_down
 
-                if len(self.space_timestamps) >= 3:
-                    # 触发连续三次空格！
+            if is_down:
+                now = time.time()
+
+                # 快捷键 1: Alt + Q (划词翻译)
+                if self.alt_pressed and vk_code == VK_Q:
+                    if self.on_selection_translate:
+                        threading.Thread(target=self.on_selection_translate, daemon=True).start()
+                    return 1
+
+                # 快捷键 2: Alt + W (截图翻译)
+                if self.alt_pressed and vk_code == VK_W:
+                    if self.on_screenshot_translate:
+                        threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
+                    return 1
+
+                # 快捷键 3: Alt + D (打开主窗口)
+                if self.alt_pressed and vk_code == VK_D:
+                    if self.on_open_main:
+                        threading.Thread(target=self.on_open_main, daemon=True).start()
+                    return 1
+
+                # 连续三次空格判定
+                if vk_code == VK_SPACE and not self.alt_pressed:
+                    self.space_timestamps = [t for t in self.space_timestamps if now - t <= self.max_interval]
+                    self.space_timestamps.append(now)
+
+                    if len(self.space_timestamps) >= 3:
+                        self.space_timestamps.clear()
+                        if self.on_triple_space:
+                            threading.Thread(target=self.on_triple_space, daemon=True).start()
+                else:
                     self.space_timestamps.clear()
-                    # 异步通知，绝不阻塞钩子线程
-                    threading.Thread(target=self.on_triple_space, daemon=True).start()
-            else:
-                # 按下了空格之外的键，重置连击计时器
-                self.space_timestamps.clear()
 
         return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 
@@ -71,10 +112,9 @@ class GlobalKeyboardHook:
             print("[Hook] Failed to install keyboard hook")
             return
 
-        print("[Hook] Global keyboard hook installed successfully. Listening for triple-space...")
+        print("[Hook] Keyboard hook installed (Triple-Space, Alt+Q, Alt+W, Alt+D).")
         msg = wintypes.MSG()
         while self._running:
-            # 消息循环，保证低级钩子正常分发事件
             b_ret = user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
             if b_ret <= 0:
                 break
@@ -84,7 +124,6 @@ class GlobalKeyboardHook:
         if self.hook_id:
             user32.UnhookWindowsHookEx(self.hook_id)
             self.hook_id = None
-            print("[Hook] Keyboard hook uninstalled.")
 
     def start(self):
         if self._running:
@@ -98,5 +137,4 @@ class GlobalKeyboardHook:
             return
         self._running = False
         if self._thread and self._thread.is_alive():
-            # 发送 WM_QUIT 退出消息泵
             user32.PostThreadMessageW(self._thread.ident, 0x0012, 0, 0)
