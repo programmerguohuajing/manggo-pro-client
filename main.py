@@ -7,11 +7,13 @@ import sys
 import os
 import time
 import threading
-from PySide6.QtCore import QObject, Signal, Slot
-from PySide6.QtWidgets import QApplication
+import ctypes
+from PySide6.QtCore import Qt, QObject, Signal, Slot
+from PySide6.QtWidgets import QApplication, QMessageBox
 import pyperclip
+import win32event
 import win32api
-import win32con
+import winerror
 
 from core.translator import TranslationManager
 from core.replacer import InPlaceReplacer, _send_ctrl_c
@@ -26,6 +28,21 @@ from ui.main_window import MainWindow
 from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
 from ui.tray import TrayManager
+
+def force_activate_window(win):
+    """确保指定窗口在 Windows 上从后台、最小化或遮挡状态强制置顶并获得焦点"""
+    if not win:
+        return
+    win.show()
+    win.setWindowState(win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+    win.raise_()
+    win.activateWindow()
+    try:
+        hwnd = int(win.winId())
+        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
 
 class AppCoordinator(QObject):
     # 跨线程信号
@@ -72,31 +89,31 @@ class AppCoordinator(QObject):
         self.hook.start()
 
         # 欢迎提示
-        self.toast.show_message("success", "Manggo Pro 全功能已就绪 (Alt+W 截图, Alt+Q 划词, 3次空格转译)")
+        self.toast.show_message("success", "Manggo Pro 全功能已就绪 (双击托盘打开设置, 3次空格转译)")
 
     def _bind_signals(self):
         # 信号槽连接
         self.notify_signal.connect(self.toast.show_message)
         self.selection_translate_signal.connect(self._do_selection_translate)
         self.ocr_translate_signal.connect(self._do_ocr_translate)
-        self.open_main_signal.connect(self._show_main_win)
+        self.open_main_signal.connect(lambda: force_activate_window(self.main_win))
         self.open_snipping_signal.connect(self.snipping_widget.start_snipping)
 
         # 截图完成送入 OCR
         self.snipping_widget.screenshot_captured.connect(self._handle_screenshot)
 
-        # 托盘与窗口联动
-        self.tray.open_main_requested.connect(self._show_main_win)
+        # 托盘与窗口联动（双击托盘打开设置，右键菜单可选工作台、截图、历史、设置）
+        self.tray.open_settings_requested.connect(lambda: force_activate_window(self.settings_win))
+        self.tray.open_main_requested.connect(lambda: force_activate_window(self.main_win))
         self.tray.open_snipping_requested.connect(self.snipping_widget.start_snipping)
-        self.tray.open_history_requested.connect(self.history_win.show)
-        self.tray.open_settings_requested.connect(self.settings_win.show)
+        self.tray.open_history_requested.connect(lambda: force_activate_window(self.history_win))
         self.tray.toggle_triple_space_requested.connect(self._on_toggle_hook)
         self.tray.exit_requested.connect(self.quit_app)
 
         # 主窗口内部按钮联动
         self.main_win.request_snipping.connect(self.snipping_widget.start_snipping)
-        self.main_win.request_history.connect(self.history_win.show)
-        self.main_win.request_settings.connect(self.settings_win.show)
+        self.main_win.request_history.connect(lambda: force_activate_window(self.history_win))
+        self.main_win.request_settings.connect(lambda: force_activate_window(self.settings_win))
 
         # 配置变更
         self.settings_win.config_changed.connect(self._on_config_changed)
@@ -116,7 +133,7 @@ class AppCoordinator(QObject):
         pyperclip.copy(sentinel)
         time.sleep(0.02)
         _send_ctrl_c()
-        time.sleep(0.05)
+        time.sleep(0.06)
 
         captured = pyperclip.paste()
         if captured and captured != sentinel:
@@ -156,12 +173,6 @@ class AppCoordinator(QObject):
         trans_res = self.trans_mgr.translate(ocr_text)
         self.float_win.display("截图 OCR 翻译", ocr_text, trans_res, source_type="ocr")
 
-    @Slot()
-    def _show_main_win(self):
-        self.main_win.show()
-        self.main_win.raise_()
-        self.main_win.activateWindow()
-
     @Slot(bool)
     def _on_toggle_hook(self, enabled: bool):
         if enabled:
@@ -182,11 +193,22 @@ class AppCoordinator(QObject):
         self.app.quit()
 
 def main():
+    # Windows 单实例互斥量检测，防止多个实例同时运行导致键盘钩子冲突
+    mutex = win32event.CreateMutex(None, False, "Global\\ManggoProClient_SingleInstance_Mutex")
+    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+        # 已有实例在运行，直接退出
+        sys.exit(0)
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     coordinator = AppCoordinator(app)
-    sys.exit(app.exec())
+    exit_code = app.exec()
+
+    # 保持 mutex 存活直至退出
+    if mutex:
+        win32api.CloseHandle(mutex)
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()

@@ -36,7 +36,7 @@ class TrayManager(QObject):
     def __init__(self, initial_enabled: bool = True, parent=None):
         super().__init__(parent)
         self.tray_icon = QSystemTrayIcon(create_mango_icon(), parent)
-        self.tray_icon.setToolTip("Manggo Pro - 全功能翻译工作台")
+        self.tray_icon.setToolTip("Manggo Pro - 全功能翻译工作台 (双击打开设置)")
         self._build_menu(initial_enabled)
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
@@ -44,7 +44,10 @@ class TrayManager(QObject):
     def _build_menu(self, enabled: bool):
         menu = QMenu()
 
-        act_main = menu.addAction("🖥️ 打开翻译工作台 (Alt+D)")
+        act_settings = menu.addAction("⚙️ 软件设置 (API & 参数)...")
+        act_settings.triggered.connect(self.open_settings_requested.emit)
+
+        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+D)")
         act_main.triggered.connect(self.open_main_requested.emit)
 
         act_snip = menu.addAction("📷 截图 OCR 翻译 (Alt+W)")
@@ -61,9 +64,6 @@ class TrayManager(QObject):
         self.act_toggle = menu.addAction("暂停三次空格转译" if enabled else "启用三次空格转译")
         self.act_toggle.triggered.connect(self._on_toggle)
 
-        act_settings = menu.addAction("⚙️ 转译设置 (API & 参数)...")
-        act_settings.triggered.connect(self.open_settings_requested.emit)
-
         menu.addSeparator()
 
         act_exit = menu.addAction("退出应用")
@@ -79,5 +79,6 @@ class TrayManager(QObject):
         self.toggle_triple_space_requested.emit(self.enabled)
 
     def _on_tray_activated(self, reason):
+        # 双击托盘图标，默认打开设置页面
         if reason == QSystemTrayIcon.DoubleClick:
-            self.open_main_requested.emit()
+            self.open_settings_requested.emit()

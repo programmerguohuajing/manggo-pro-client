@@ -34,11 +34,24 @@ class FreeTranslator(BaseTranslator):
         if target_lang == "auto":
             target_lang = "en" if is_predominantly_chinese(clean_text) else "zh-CN"
 
-        # 尝试 Google 网页翻译中继接口
+        # 1. 优先尝试国内极速通道 (有道公共引擎，国内直连毫秒级响应)
+        try:
+            yd_url = "https://aidemo.youdao.com/trans"
+            data = urllib.parse.urlencode({"q": clean_text, "from": "Auto", "to": "Auto"}).encode("utf-8")
+            req = urllib.request.Request(yd_url, data=data, headers={"User-Agent": self.user_agent})
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                trans_arr = res.get("translation", [])
+                if trans_arr and trans_arr[0]:
+                    return trans_arr[0].strip()
+        except Exception:
+            pass
+
+        # 2. 尝试 Google 网页翻译中继接口
         try:
             url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q={urllib.parse.quote(clean_text)}"
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 result = "".join([segment[0] for segment in data[0] if segment[0]])
                 if result:
@@ -46,13 +59,13 @@ class FreeTranslator(BaseTranslator):
         except Exception:
             pass
 
-        # 备选：MyMemory 免费公开接口
+        # 3. 备选：MyMemory 免费公开接口
         try:
             sl = "zh" if target_lang == "en" else "en"
             tl = target_lang if target_lang != "zh-CN" else "zh"
             url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(clean_text)}&langpair={sl}|{tl}"
             req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 trans = res.get("responseData", {}).get("translatedText", "")
                 if trans and "MYMEMORY WARNING" not in trans:

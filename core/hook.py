@@ -48,7 +48,8 @@ class GlobalKeyboardHook:
         self.on_open_main = on_open_main
         self.max_interval = max_interval
 
-        self.space_timestamps = []
+        self.space_count = 0
+        self.last_space_time = 0.0
         self.alt_pressed = False
         self.hook_id = None
         self._thread = None
@@ -86,17 +87,23 @@ class GlobalKeyboardHook:
                         threading.Thread(target=self.on_open_main, daemon=True).start()
                     return 1
 
-                # 连续三次空格判定
+                # 连续三次空格判定 (基于相邻按键间隔)
                 if vk_code == VK_SPACE and not self.alt_pressed:
-                    self.space_timestamps = [t for t in self.space_timestamps if now - t <= self.max_interval]
-                    self.space_timestamps.append(now)
+                    if self.last_space_time > 0 and (now - self.last_space_time) <= self.max_interval:
+                        self.space_count += 1
+                    else:
+                        self.space_count = 1
+                    self.last_space_time = now
 
-                    if len(self.space_timestamps) >= 3:
-                        self.space_timestamps.clear()
+                    if self.space_count >= 3:
+                        self.space_count = 0
+                        self.last_space_time = 0.0
                         if self.on_triple_space:
                             threading.Thread(target=self.on_triple_space, daemon=True).start()
-                else:
-                    self.space_timestamps.clear()
+                elif vk_code not in (0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5):
+                    # 用户按下了非修饰键的其它键，重置空格连击计数
+                    self.space_count = 0
+                    self.last_space_time = 0.0
 
         return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 
