@@ -165,30 +165,35 @@ QComboBox::drop-down {
     width: 26px;
 }
 
-/* 下拉菜单弹出层 (解决暗黑模式下全黑看不到文字的问题) */
-QComboBox QAbstractItemView, QListView {
+/* 下拉菜单弹出层 (彻底消除 Windows 黑色外边框，呈现现代化柔和浅边) */
+QComboBoxPrivateContainer {
+    border: none;
+    background-color: transparent;
+}
+QComboBox QAbstractItemView, QComboBox QListView {
     background-color: #FFFFFF;
     color: #111827;
-    border: 1px solid #D1D5DB;
+    border: 1px solid #E5E7EB;
     border-radius: 8px;
     padding: 4px;
     outline: none;
     selection-background-color: #FFEDD5;
     selection-color: #C2410C;
 }
-QComboBox QAbstractItemView::item, QListView::item {
+QComboBox QAbstractItemView::item, QComboBox QListView::item {
     min-height: 32px;
     padding: 6px 12px;
     color: #1F2937;
     background-color: #FFFFFF;
     border-radius: 6px;
     font-size: 12px;
+    border: none;
 }
-QComboBox QAbstractItemView::item:hover, QListView::item:hover {
+QComboBox QAbstractItemView::item:hover, QComboBox QListView::item:hover {
     background-color: #FFF7ED;
     color: #EA580C;
 }
-QComboBox QAbstractItemView::item:selected, QListView::item:selected {
+QComboBox QAbstractItemView::item:selected, QComboBox QListView::item:selected {
     background-color: #FFEDD5;
     color: #C2410C;
     font-weight: bold;
@@ -448,6 +453,17 @@ def _create_label(text: str, css_class: str = "", parent=None) -> QLabel:
         lbl.setProperty("class", css_class)
     return lbl
 
+def setup_modern_combobox(combo: QComboBox):
+    """消除 QComboBox 在 Windows 上的黑色边框与暗黑容器背景，呈现柔和纯白现代弹层"""
+    lv = QListView(combo)
+    lv.setFrameShape(QFrame.NoFrame)
+    lv.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    combo.setView(lv)
+    popup = combo.view().window()
+    if popup:
+        popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        popup.setAttribute(Qt.WA_TranslucentBackground)
+
 class SettingsWindow(QWidget):
     config_changed = Signal(dict)
     open_main_requested = Signal()
@@ -656,7 +672,7 @@ class SettingsWindow(QWidget):
         cs_l.addWidget(lbl_eng_title)
 
         self.cmb_engine = QComboBox()
-        self.cmb_engine.setView(QListView())
+        setup_modern_combobox(self.cmb_engine)
         self.cmb_engine.addItems([
             "⚡ 内置极速通道 (免 API Key，国内毫秒级响应，开箱即用)",
             "🧠 自定义大模型 Pro 通道 (DeepSeek / 通义千问 / OpenAI / 本地 Ollama)"
@@ -678,7 +694,7 @@ class SettingsWindow(QWidget):
         h_preset.addWidget(lbl_preset)
 
         self.cmb_preset = QComboBox()
-        self.cmb_preset.setView(QListView())
+        setup_modern_combobox(self.cmb_preset)
         self.cmb_preset.addItem("—— 请选择预设模板 ——")
         for name in PRESETS.keys():
             self.cmb_preset.addItem(name)
@@ -720,7 +736,7 @@ class SettingsWindow(QWidget):
         h_prompt_hdr.addStretch()
 
         self.cmb_prompt_tpl = QComboBox()
-        self.cmb_prompt_tpl.setView(QListView())
+        setup_modern_combobox(self.cmb_prompt_tpl)
         self.cmb_prompt_tpl.addItem("—— 选用表达风格模板 ——")
         for tpl_name in PROMPT_TEMPLATES.keys():
             self.cmb_prompt_tpl.addItem(tpl_name)
