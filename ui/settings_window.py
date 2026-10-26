@@ -488,7 +488,7 @@ class SettingsWindow(QWidget):
 
         h_layout.addStretch()
 
-        btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+D)", header)
+        btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+M)", header)
         btn_go_main.setProperty("class", "SecondaryBtn")
         btn_go_main.clicked.connect(self.open_main_requested.emit)
         h_layout.addWidget(btn_go_main)
@@ -761,10 +761,10 @@ class SettingsWindow(QWidget):
 
         hotkeys = [
             ("连续 3 次空格 (Space)", "输入框就地转译 (Pro 核心特性)", "在任意应用（微信、Word、浏览器、代码编辑器）输入中文后连击 3 次空格，自动消除空格并将文字就地替换为英文。"),
-            ("Alt + D  或  Alt + Q", "划选文本悬浮翻译", "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片，支持朗读、复制、存入生词本。"),
-            ("Alt + X  或  Alt + W", "全屏截图 OCR 文字识别", "全屏十字光标框选任意区域，毫秒级提取图像中的中英文文字并自动进行翻译对照。"),
+            ("Alt + Q", "划选文本悬浮翻译", "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片，支持朗读、复制、存入生词本（不占用 Alt+D）。"),
+            ("Alt + W", "全屏截图 OCR 文字识别", "全屏十字光标框选任意区域，毫秒级提取图像中的中英文文字并自动进行翻译对照（不占用 Alt+X）。"),
+            ("Alt + M", "呼出桌面翻译工作台", "沉浸式双栏对照翻译工作台，支持中英双向互译、生词本检索与长文本排版翻译。"),
             ("Alt + Space", "语音输入与实时听写", "唤起麦克风拾音指示气泡，语音转文字直接打字上屏。"),
-            ("Alt + Shift + D", "呼出桌面翻译工作台", "沉浸式双栏对照翻译工作台，支持中英双向互译、生词本检索与长文本排版翻译。"),
             ("双击系统托盘图标", "打开偏好设置中心", "随时快速呼出本设置面板，调节连击灵敏度与切换大模型 Pro 通道。"),
             ("Ctrl + Enter", "工作台立即翻译", "在主翻译工作台原文编辑框内一键提交翻译请求。")
         ]

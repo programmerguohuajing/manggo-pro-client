@@ -49,13 +49,13 @@ class TrayManager(QObject):
     def _build_menu(self, enabled: bool):
         menu = QMenu()
 
-        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+Shift+D)")
+        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+M)")
         act_main.triggered.connect(self.open_main_requested.emit)
 
-        act_sel = menu.addAction("📝 划选文本翻译 (Alt+D / Alt+Q)")
+        act_sel = menu.addAction("📝 划选文本翻译 (Alt+Q)")
         act_sel.triggered.connect(self.open_selection_requested.emit)
 
-        act_snip = menu.addAction("📷 截图 OCR 识别 (Alt+X / Alt+W)")
+        act_snip = menu.addAction("📷 截图 OCR 识别 (Alt+W)")
         act_snip.triggered.connect(self.open_snipping_requested.emit)
 
         act_voice = menu.addAction("🎤 语音输入与听写 (Alt+Space)")
