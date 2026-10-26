@@ -1,7 +1,14 @@
 """
-Manggo Pro Client - 全功能桌面客户端入口
-包含：主翻译工作台、截图 OCR 翻译 (Alt+W)、划词悬浮翻译 (Alt+Q)、
-连续三次空格输入框就地转译、生词本与历史记录、离线 TTS 朗读。
+Manggo Pro Client - 全功能桌面客户端入口 (100% 对标并升级原版 Manggo 全特性)
+功能矩阵：
+1. 连续 3 次空格输入框就地转译 (Manggo Pro 核心特性)
+2. 划词悬浮卡片翻译 (Alt+D / Alt+Q)
+3. 截图 OCR 离线文字提取与对照翻译 (Alt+X / Alt+W)
+4. 语音听写输入 / 实时语音转文字 (Alt+Space)
+5. 沉浸式双栏桌面翻译工作台 (Alt+Shift+D)
+6. 离线语音合成朗读 (SAPI TTS)
+7. 历史记录与生词本 (无缝同步原版数据)
+8. 现代化侧栏卡片式偏好设置中心 (双击系统托盘)
 """
 import sys
 import os
@@ -24,6 +31,7 @@ from core.database import db
 from ui.toast import FloatToast
 from ui.float_window import FloatResultWindow
 from ui.snipping import SnippingWidget
+from ui.voice_window import VoiceInputWindow
 from ui.main_window import MainWindow
 from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
@@ -51,6 +59,7 @@ class AppCoordinator(QObject):
     ocr_translate_signal = Signal(str)
     open_main_signal = Signal()
     open_snipping_signal = Signal()
+    open_voice_signal = Signal()
 
     def __init__(self, app: QApplication):
         super().__init__()
@@ -60,10 +69,11 @@ class AppCoordinator(QObject):
         # 1. 翻译管理器
         self.trans_mgr = TranslationManager(self.config)
 
-        # 2. UI 组件初始化
+        # 2. UI 组件全矩阵初始化
         self.toast = FloatToast()
         self.float_win = FloatResultWindow()
         self.snipping_widget = SnippingWidget()
+        self.voice_win = VoiceInputWindow()
         self.main_win = MainWindow(self.trans_mgr)
         self.history_win = HistoryWindow()
         self.settings_win = SettingsWindow()
@@ -78,11 +88,12 @@ class AppCoordinator(QObject):
             notify_callback=self._notify_bridge
         )
 
-        # 5. 全局低级键盘热键监听 (三次空格, Alt+Q, Alt+W, Alt+D)
+        # 5. 全局低级键盘热键监听 (全面支持原版 Manggo 键位: Alt+D, Alt+X, Alt+Space, Alt+Shift+D, 3次空格)
         self.hook = GlobalKeyboardHook(
             on_triple_space=self.replacer.trigger_triple_space_replace,
             on_selection_translate=self._on_hotkey_selection,
             on_screenshot_translate=self.open_snipping_signal.emit,
+            on_voice_input=self.open_voice_signal.emit,
             on_open_main=self.open_main_signal.emit,
             max_interval=self.config.get("max_interval_ms", 550) / 1000.0
         )
@@ -92,21 +103,24 @@ class AppCoordinator(QObject):
         self.toast.show_message("success", "Manggo Pro 全功能已就绪 (双击托盘打开设置, 3次空格转译)")
 
     def _bind_signals(self):
-        # 信号槽连接
+        # 基础信号槽连接
         self.notify_signal.connect(self.toast.show_message)
         self.selection_translate_signal.connect(self._do_selection_translate)
         self.ocr_translate_signal.connect(self._do_ocr_translate)
         self.open_main_signal.connect(lambda: force_activate_window(self.main_win))
         self.open_snipping_signal.connect(self.snipping_widget.start_snipping)
+        self.open_voice_signal.connect(self.voice_win.start_listening)
 
         # 截图完成送入 OCR
         self.snipping_widget.screenshot_captured.connect(self._handle_screenshot)
 
-        # 托盘与窗口联动（双击托盘打开设置，右键菜单可选工作台、截图、历史、设置）
-        self.tray.open_settings_requested.connect(lambda: force_activate_window(self.settings_win))
+        # 托盘与窗口联动 (100% 对齐原版功能)
         self.tray.open_main_requested.connect(lambda: force_activate_window(self.main_win))
+        self.tray.open_selection_requested.connect(self._on_hotkey_selection)
         self.tray.open_snipping_requested.connect(self.snipping_widget.start_snipping)
+        self.tray.open_voice_requested.connect(self.voice_win.start_listening)
         self.tray.open_history_requested.connect(lambda: force_activate_window(self.history_win))
+        self.tray.open_settings_requested.connect(lambda: force_activate_window(self.settings_win))
         self.tray.toggle_triple_space_requested.connect(self._on_toggle_hook)
         self.tray.exit_requested.connect(self.quit_app)
 
@@ -125,7 +139,7 @@ class AppCoordinator(QObject):
         self.notify_signal.emit(status, message)
 
     def _on_hotkey_selection(self):
-        # 触发划词翻译：先模拟 Ctrl+C 读取选区
+        # 划词翻译：安全模拟 Ctrl+C 读取选区
         original_clip = ""
         try:
             original_clip = pyperclip.paste()
@@ -142,9 +156,9 @@ class AppCoordinator(QObject):
         if captured and captured != sentinel:
             self.selection_translate_signal.emit(captured.strip())
         else:
-            self.notify_signal.emit("failed", "未检测到已选中文本")
+            self.notify_signal.emit("failed", "未检测到鼠标选中文本")
 
-        # 恢复剪贴板
+        # 延迟恢复剪贴板
         time.sleep(0.4)
         try:
             pyperclip.copy(original_clip)
@@ -159,7 +173,7 @@ class AppCoordinator(QObject):
         self.float_win.display("划词翻译", text, trans_res, source_type="selection")
 
     def _handle_screenshot(self, pil_img):
-        # 异步执行 OCR 与翻译，避免卡顿
+        # 异步执行 OCR 与翻译，避免卡顿界面
         threading.Thread(target=self._ocr_worker, args=(pil_img,), daemon=True).start()
 
     def _ocr_worker(self, pil_img):
@@ -196,10 +210,9 @@ class AppCoordinator(QObject):
         self.app.quit()
 
 def main():
-    # Windows 单实例互斥量检测，防止多个实例同时运行导致键盘钩子冲突
+    # 会话级互斥体，防止重复启动冲突
     mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
-        # 已有实例在运行，直接退出
         sys.exit(0)
 
     app = QApplication(sys.argv)
@@ -208,7 +221,6 @@ def main():
     coordinator = AppCoordinator(app)
     exit_code = app.exec()
 
-    # 保持 mutex 存活直至退出
     if mutex:
         win32api.CloseHandle(mutex)
     sys.exit(exit_code)

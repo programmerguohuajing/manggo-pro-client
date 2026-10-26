@@ -1,5 +1,5 @@
 """
-系统托盘与图标管理
+系统托盘与图标管理 (100% 对齐原版 Manggo 功能矩阵)
 """
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu
@@ -11,13 +11,16 @@ def create_mango_icon() -> QIcon:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
 
+    # 芒果金黄主体
     painter.setBrush(QColor(255, 165, 0))
     painter.setPen(Qt.NoPen)
     painter.drawEllipse(4, 6, 24, 22)
 
+    # 嫩绿叶片
     painter.setBrush(QColor(46, 204, 113))
     painter.drawEllipse(16, 2, 8, 6)
 
+    # 标识字符 M
     painter.setPen(QColor(255, 255, 255))
     painter.setFont(QFont("Arial", 11, QFont.Bold))
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "M")
@@ -27,7 +30,9 @@ def create_mango_icon() -> QIcon:
 
 class TrayManager(QObject):
     open_main_requested = Signal()
+    open_selection_requested = Signal()
     open_snipping_requested = Signal()
+    open_voice_requested = Signal()
     open_history_requested = Signal()
     open_settings_requested = Signal()
     toggle_triple_space_requested = Signal(bool)
@@ -36,7 +41,7 @@ class TrayManager(QObject):
     def __init__(self, initial_enabled: bool = True, parent=None):
         super().__init__(parent)
         self.tray_icon = QSystemTrayIcon(create_mango_icon(), parent)
-        self.tray_icon.setToolTip("Manggo Pro - 全功能翻译工作台 (双击打开设置)")
+        self.tray_icon.setToolTip("Manggo Pro Client (双击打开设置)")
         self._build_menu(initial_enabled)
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
@@ -44,14 +49,17 @@ class TrayManager(QObject):
     def _build_menu(self, enabled: bool):
         menu = QMenu()
 
-        act_settings = menu.addAction("⚙️ 软件设置 (API & 参数)...")
-        act_settings.triggered.connect(self.open_settings_requested.emit)
-
-        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+D)")
+        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+Shift+D)")
         act_main.triggered.connect(self.open_main_requested.emit)
 
-        act_snip = menu.addAction("📷 截图 OCR 翻译 (Alt+W)")
+        act_sel = menu.addAction("📝 划选文本翻译 (Alt+D / Alt+Q)")
+        act_sel.triggered.connect(self.open_selection_requested.emit)
+
+        act_snip = menu.addAction("📷 截图 OCR 识别 (Alt+X / Alt+W)")
         act_snip.triggered.connect(self.open_snipping_requested.emit)
+
+        act_voice = menu.addAction("🎤 语音输入与听写 (Alt+Space)")
+        act_voice.triggered.connect(self.open_voice_requested.emit)
 
         act_history = menu.addAction("📖 历史记录 & 生词本")
         act_history.triggered.connect(self.open_history_requested.emit)
@@ -63,6 +71,9 @@ class TrayManager(QObject):
 
         self.act_toggle = menu.addAction("暂停三次空格转译" if enabled else "启用三次空格转译")
         self.act_toggle.triggered.connect(self._on_toggle)
+
+        act_settings = menu.addAction("⚙️ 软件偏好设置 (API & 参数)...")
+        act_settings.triggered.connect(self.open_settings_requested.emit)
 
         menu.addSeparator()
 

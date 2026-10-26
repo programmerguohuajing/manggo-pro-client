@@ -32,6 +32,41 @@ class HistoryDB:
                 )
             """)
             conn.commit()
+        # 初始化时自动从系统原版 Manggo 导入历史记录
+        self.sync_from_original_manggo()
+
+    def sync_from_original_manggo(self) -> int:
+        orig_db = os.path.expandvars(r"%APPDATA%\Manggo\Manggo\history\history.sqlite3")
+        if not os.path.exists(orig_db):
+            return 0
+        imported = 0
+        try:
+            with sqlite3.connect(orig_db) as o_conn, self._get_conn() as my_conn:
+                o_cur = o_conn.cursor()
+                my_cur = my_conn.cursor()
+                o_cur.execute("SELECT type, source_text, result_text, source_language, target_language, created_at FROM history_entries")
+                rows = o_cur.fetchall()
+                for r in rows:
+                    stype, src, tgt, slang, tlang, created_at_ms = r
+                    if not src or not tgt:
+                        continue
+                    clean_src = src.strip()
+                    clean_tgt = tgt.strip()
+                    my_cur.execute("SELECT id FROM history WHERE source_text = ? AND target_text = ?", (clean_src, clean_tgt))
+                    if not my_cur.fetchone():
+                        try:
+                            dt = datetime.datetime.fromtimestamp(created_at_ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            dt = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        my_cur.execute("""
+                            INSERT INTO history (source_text, target_text, source_type, source_lang, target_lang, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (clean_src, clean_tgt, f"manggo_{stype}", slang or 'auto', tlang or 'auto', dt))
+                        imported += 1
+                my_conn.commit()
+        except Exception as e:
+            print(f"[DB] Error syncing original manggo history: {e}")
+        return imported
 
     def add_record(self, source_text: str, target_text: str, source_type: str = "manual", source_lang: str = "auto", target_lang: str = "en") -> int:
         src = source_text.strip()
