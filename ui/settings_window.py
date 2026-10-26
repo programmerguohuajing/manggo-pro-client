@@ -4,16 +4,19 @@
 """
 import os
 import json
+import time
 import webbrowser
 from typing import Callable
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QSpinBox, QSlider, QPushButton, QCheckBox, QFrame,
     QMessageBox, QTextEdit, QStackedWidget, QListWidget, QListWidgetItem,
     QGraphicsDropShadowEffect, QScrollArea, QSizePolicy
 )
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
+import pyperclip
+from core.tts import tts_player
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
 
@@ -249,6 +252,166 @@ QSlider::handle:horizontal:hover {
     background: #FFEDD5;
 }
 """
+
+class TranslationTestDialog(QDialog):
+    """
+    对标原版 Manggo 软件视觉规范的翻译通道测试与诊断面板
+    """
+    def __init__(self, parent=None, is_success=True, source_text="", target_text="", mode_name="", elapsed_ms=0, error_msg=""):
+        super().__init__(parent)
+        self.setWindowTitle("Manggo 翻译通道测试与诊断")
+        self.resize(540, 500)
+        self.setMinimumSize(480, 440)
+        self.source_text = source_text
+        self.target_text = target_text
+
+        self._init_ui(is_success, mode_name, elapsed_ms, error_msg)
+
+    def _init_ui(self, is_success: bool, mode_name: str, elapsed_ms: int, error_msg: str):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(14)
+
+        # 1. 顶部 Header
+        header = QHBoxLayout()
+        lbl_title = QLabel("🥭 Manggo 通道测试诊断", self)
+        lbl_title.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        lbl_title.setStyleSheet("color: #EA580C;")
+        header.addWidget(lbl_title)
+
+        header.addStretch()
+
+        # 状态小胶囊
+        lbl_badge = QLabel(f"● 连通正常 ({elapsed_ms}ms)" if is_success else "● 连接异常", self)
+        if is_success:
+            lbl_badge.setStyleSheet("background: #DCFCE7; color: #15803D; font-weight: bold; padding: 4px 10px; border-radius: 12px; font-size: 11px;")
+        else:
+            lbl_badge.setStyleSheet("background: #FEE2E2; color: #B91C1C; font-weight: bold; padding: 4px 10px; border-radius: 12px; font-size: 11px;")
+        header.addWidget(lbl_badge)
+        root.addLayout(header)
+
+        # 通道模式与指标条
+        metrics_bar = QFrame(self)
+        metrics_bar.setStyleSheet("background: #F3F4F6; border-radius: 8px; padding: 4px 12px;")
+        m_layout = QHBoxLayout(metrics_bar)
+        m_layout.setContentsMargins(8, 6, 8, 6)
+
+        lbl_mode = QLabel(f"🌐 激活通道: {mode_name}", metrics_bar)
+        lbl_mode.setStyleSheet("color: #374151; font-size: 12px; font-weight: 500;")
+        m_layout.addWidget(lbl_mode)
+
+        m_layout.addStretch()
+
+        lbl_speed = QLabel(f"⏱️ 耗时: {elapsed_ms} ms" if is_success else "❌ 请求失败", metrics_bar)
+        lbl_speed.setStyleSheet("color: #6B7280; font-size: 11px;")
+        m_layout.addWidget(lbl_speed)
+        root.addWidget(metrics_bar)
+
+        if is_success:
+            # 2. 原文卡片
+            card_src = QFrame(self)
+            card_src.setStyleSheet("background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 10px;")
+            cs_layout = QVBoxLayout(card_src)
+            cs_layout.setSpacing(6)
+
+            h_src_top = QHBoxLayout()
+            lbl_src_tag = QLabel("🇨🇳 原文 (中文)", card_src)
+            lbl_src_tag.setStyleSheet("color: #4B5563; font-size: 11px; font-weight: bold;")
+            h_src_top.addWidget(lbl_src_tag)
+            h_src_top.addStretch()
+
+            btn_src_tts = QPushButton("🔊 朗读", card_src)
+            btn_src_tts.setProperty("class", "SecondaryBtn")
+            btn_src_tts.clicked.connect(lambda: tts_player.speak(self.source_text))
+            h_src_top.addWidget(btn_src_tts)
+
+            btn_src_copy = QPushButton("📋 复制", card_src)
+            btn_src_copy.setProperty("class", "SecondaryBtn")
+            btn_src_copy.clicked.connect(lambda: pyperclip.copy(self.source_text))
+            h_src_top.addWidget(btn_src_copy)
+            cs_layout.addLayout(h_src_top)
+
+            txt_src = QTextEdit(card_src)
+            txt_src.setPlainText(self.source_text)
+            txt_src.setReadOnly(True)
+            txt_src.setFixedHeight(65)
+            txt_src.setStyleSheet("background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 6px; padding: 6px; font-size: 12px; color: #1F2937;")
+            cs_layout.addWidget(txt_src)
+            root.addWidget(card_src)
+
+            # 3. 译文卡片
+            card_tgt = QFrame(self)
+            card_tgt.setStyleSheet("background: #FFFFFF; border: 1px solid #FDBA74; border-radius: 10px; padding: 10px;")
+            ct_layout = QVBoxLayout(card_tgt)
+            ct_layout.setSpacing(6)
+
+            h_tgt_top = QHBoxLayout()
+            lbl_tgt_tag = QLabel("🇬🇧 译文 (English)", card_tgt)
+            lbl_tgt_tag.setStyleSheet("color: #EA580C; font-size: 11px; font-weight: bold;")
+            h_tgt_top.addWidget(lbl_tgt_tag)
+            h_tgt_top.addStretch()
+
+            btn_tgt_tts = QPushButton("🔊 朗读", card_tgt)
+            btn_tgt_tts.setProperty("class", "SecondaryBtn")
+            btn_tgt_tts.clicked.connect(lambda: tts_player.speak(self.target_text))
+            h_tgt_top.addWidget(btn_tgt_tts)
+
+            btn_tgt_copy = QPushButton("📋 复制译文", card_tgt)
+            btn_tgt_copy.setProperty("class", "SecondaryBtn")
+            btn_tgt_copy.clicked.connect(lambda: pyperclip.copy(self.target_text))
+            h_tgt_top.addWidget(btn_tgt_copy)
+            ct_layout.addLayout(h_tgt_top)
+
+            txt_tgt = QTextEdit(card_tgt)
+            txt_tgt.setPlainText(self.target_text)
+            txt_tgt.setReadOnly(True)
+            txt_tgt.setFixedHeight(75)
+            txt_tgt.setStyleSheet("background: #FFFAF5; border: 1.5px solid #EA580C; border-radius: 6px; padding: 6px; font-size: 13px; font-weight: 500; color: #111827;")
+            ct_layout.addWidget(txt_tgt)
+            root.addWidget(card_tgt)
+        else:
+            # 异常详情卡片
+            card_err = QFrame(self)
+            card_err.setStyleSheet("background: #FFF5F5; border: 1.5px solid #FEB2B2; border-radius: 10px; padding: 12px;")
+            ce_layout = QVBoxLayout(card_err)
+            ce_layout.setSpacing(8)
+
+            lbl_err_title = QLabel("⚠️ 通道异常报错信息", card_err)
+            lbl_err_title.setStyleSheet("color: #C53030; font-weight: bold; font-size: 13px;")
+            ce_layout.addWidget(lbl_err_title)
+
+            txt_err = QTextEdit(card_err)
+            txt_err.setPlainText(error_msg)
+            txt_err.setReadOnly(True)
+            txt_err.setFixedHeight(90)
+            txt_err.setStyleSheet("background: #FFFFFF; border: 1px solid #FEB2B2; border-radius: 6px; padding: 6px; font-size: 11px; color: #742A2A;")
+            ce_layout.addWidget(txt_err)
+
+            lbl_err_hint = QLabel("💡 排查建议：\n1. 若为大模型 Pro 通道，请确认 API Key 是否有效且账户有余额；\n2. 检查 Base URL 是否正确（官方 OpenAI/DeepSeek 需包含 /v1）；\n3. 确认网络连接或代理设置正常。", card_err)
+            lbl_err_hint.setStyleSheet("color: #9B2C2C; font-size: 11px; line-height: 1.4;")
+            ce_layout.addWidget(lbl_err_hint)
+            root.addWidget(card_err)
+
+        # 4. 底部操作栏
+        footer = QHBoxLayout()
+        lbl_foot_info = QLabel("通道就绪后，可在任意界面随时使用 3 次空格就地转译或 Alt+D 划词翻译。" if is_success else "请修改参数后再次测试。", self)
+        lbl_foot_info.setStyleSheet("color: #6B7280; font-size: 11px;")
+        footer.addWidget(lbl_foot_info)
+
+        footer.addStretch()
+
+        if is_success:
+            btn_copy_all = QPushButton("📋 复制结果", self)
+            btn_copy_all.setProperty("class", "SecondaryBtn")
+            btn_copy_all.clicked.connect(lambda: pyperclip.copy(self.target_text))
+            footer.addWidget(btn_copy_all)
+
+        btn_confirm = QPushButton("确定", self)
+        btn_confirm.setProperty("class", "PrimaryBtn")
+        btn_confirm.setFixedWidth(80)
+        btn_confirm.clicked.connect(self.accept)
+        footer.addWidget(btn_confirm)
+        root.addLayout(footer)
 
 def _create_label(text: str, css_class: str = "", parent=None) -> QLabel:
     lbl = QLabel(text, parent)
@@ -701,17 +864,39 @@ class SettingsWindow(QWidget):
         cfg = self._gather_config()
         mgr = TranslationManager(cfg)
         test_src = "今天天气真好，一起去公园散步吧。"
+
+        is_llm = cfg.get("engine") == "llm"
+        model_name = cfg.get("llm_model", "deepseek-chat")
+        mode_desc = f"大模型 Pro 通道 ({model_name})" if is_llm else "内置免费极速通道 (免Key)"
+
+        start_time = time.time()
         try:
             res = mgr.translate_to_en(test_src)
-            self.lbl_status.setText("测试成功！通道运行正常")
-            QMessageBox.information(
-                self,
-                "翻译通道测试成功",
-                f"【原文】\n{test_src}\n\n【译文】\n{res}\n\n通道模式: {'大模型 Pro 通道' if cfg['engine'] == 'llm' else '内置免费极速通道'}"
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            self.lbl_status.setText(f"✓ 测试成功！通道响应正常 ({elapsed_ms}ms)")
+            
+            dlg = TranslationTestDialog(
+                parent=self,
+                is_success=True,
+                source_text=test_src,
+                target_text=res,
+                mode_name=mode_desc,
+                elapsed_ms=elapsed_ms
             )
+            dlg.exec()
         except Exception as e:
-            self.lbl_status.setText("测试失败，请检查网络或参数")
-            QMessageBox.critical(self, "测试失败", f"错误原因:\n{e}")
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            self.lbl_status.setText("❌ 测试失败，请检查网络或参数")
+            
+            dlg = TranslationTestDialog(
+                parent=self,
+                is_success=False,
+                source_text=test_src,
+                mode_name=mode_desc,
+                elapsed_ms=elapsed_ms,
+                error_msg=str(e)
+            )
+            dlg.exec()
 
     def _save_and_apply(self):
         new_cfg = self._gather_config()
