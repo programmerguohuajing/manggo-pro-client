@@ -95,7 +95,7 @@ class MainWindow(QWidget):
         btn_speak_src.clicked.connect(lambda: tts_player.speak(self.txt_source.toPlainText()))
         h_left_tools.addWidget(btn_speak_src)
         btn_clear = QPushButton("清空")
-        btn_clear.clicked.connect(self.txt_source.clear)
+        btn_clear.clicked.connect(lambda: self.txt_source.clear())
         h_left_tools.addWidget(btn_clear)
         l_layout.addLayout(h_left_tools)
 

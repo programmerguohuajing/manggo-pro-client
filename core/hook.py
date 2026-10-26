@@ -109,10 +109,11 @@ class GlobalKeyboardHook:
 
     def _run_hook_loop(self):
         self._hook_proc_ref = HOOKPROC(self._hook_callback)
+        # 对于 WH_KEYBOARD_LL 全局钩子，Windows 要求 hMod 为 0 (NULL)
         self.hook_id = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL,
             self._hook_proc_ref,
-            kernel32.GetModuleHandleW(None),
+            0,
             0
         )
         if not self.hook_id:
