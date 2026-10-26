@@ -115,6 +115,9 @@ class AppCoordinator(QObject):
         self.main_win.request_history.connect(lambda: force_activate_window(self.history_win))
         self.main_win.request_settings.connect(lambda: force_activate_window(self.settings_win))
 
+        # 设置窗口跳转联动
+        self.settings_win.open_main_requested.connect(lambda: force_activate_window(self.main_win))
+
         # 配置变更
         self.settings_win.config_changed.connect(self._on_config_changed)
 
