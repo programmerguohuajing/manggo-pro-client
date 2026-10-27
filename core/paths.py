@@ -15,6 +15,31 @@ Program Files、/Applications、/usr/share 后，普通用户写不进
 
 import os
 import shutil
+import tempfile
+
+
+def _dir_writable(directory: str) -> bool:
+    """目录是否真的可写：实际建一个临时文件再删掉。
+
+    不能用 os.access(directory, os.W_OK)：Windows 上它只看文件属性，
+    不看 ACL——Program Files 下的目录它也返回 True，但实际建文件会
+    被拒绝。2026-10-27 实测：v1.0.0 安装版就是这么在启动时崩的
+    （sqlite3.OperationalError: unable to open database file，
+    main.py:35 -> database.py:141），因为 data_file 误判 _internal
+    可写，没走到用户目录兜底。
+    """
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".manggo-write-test-", dir=directory)
+    except Exception:
+        return False
+    try:
+        os.close(fd)
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+    return True
 
 
 def _user_data_dir() -> str:
@@ -27,7 +52,7 @@ def _user_data_dir() -> str:
 def data_file(preferred_path: str) -> str:
     """给定首选路径（程序旁），返回实际可用的数据文件路径。"""
     directory = os.path.dirname(preferred_path)
-    if os.access(directory, os.W_OK):
+    if _dir_writable(directory):
         return preferred_path
     user_dir = _user_data_dir()
     try:
