@@ -4,7 +4,7 @@
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QFrame, QGraphicsDropShadowEffect
+    QPushButton, QFrame, QGraphicsDropShadowEffect, QSizeGrip
 )
 from PySide6.QtGui import QFont, QColor, QCursor, QGuiApplication
 import pyperclip
@@ -23,7 +23,11 @@ class FloatResultWindow(QWidget):
             Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(380, 280)
+        # 默认比原来大一圈；无边框窗口没有系统缩放边，所以右下角
+        # 另放一个 QSizeGrip 让用户自己拉大（OCR 长文本尤其需要）。
+        self.resize(460, 380)
+        self.setMinimumSize(340, 260)
+        self._drag_pos = None
 
         self.current_source_text = ""
         self.current_target_text = ""
@@ -97,7 +101,7 @@ class FloatResultWindow(QWidget):
 
         self.txt_source = QTextEdit(self.card)
         self.txt_source.setReadOnly(True)
-        self.txt_source.setFixedHeight(60)
+        self.txt_source.setFixedHeight(80)
         self.txt_source.setStyleSheet(f"border: 1px solid {theme.BORDER}; border-radius: 6px; background: {theme.SURFACE_MUTED}; font-size: 12px; padding: 4px;")
         card_layout.addWidget(self.txt_source)
 
@@ -124,9 +128,38 @@ class FloatResultWindow(QWidget):
         self.txt_target = QTextEdit(self.card)
         self.txt_target.setReadOnly(True)
         self.txt_target.setStyleSheet(f"border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px; background: {theme.SURFACE}; font-size: 13px; font-weight: 500; color: {theme.TEXT_PRIMARY}; padding: 4px;")
-        card_layout.addWidget(self.txt_target)
+        card_layout.addWidget(self.txt_target, 1)
+
+        # 右下角缩放手柄：无边框窗口靠它改变大小。
+        h_grip = QHBoxLayout()
+        h_grip.addStretch()
+        h_grip.addWidget(QSizeGrip(self.card))
+        card_layout.addLayout(h_grip)
 
         root_layout.addWidget(self.card)
+
+    # 无边框窗口的拖动：按住标题行或卡片空白处拖动；点在文本框
+    # （要选文字）和按钮上不触发拖动，避免跟选词、复制抢鼠标。
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            inner = self.card.mapFrom(self, event.pos())
+            child = self.card.childAt(inner)
+            if not isinstance(child, (QTextEdit, QPushButton)):
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def display(self, title: str, source_text: str, target_text: str, source_type: str = "selection"):
         self.lbl_title.setText(f"Manggo {title}")
