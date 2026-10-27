@@ -273,6 +273,15 @@ class AppCoordinator(QObject):
             pass
         self.app.quit()
 
+def _is_admin() -> bool:
+    if not IS_WINDOWS:
+        return False
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
 def check_admin_elevation():
     """
     检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)
@@ -280,24 +289,39 @@ def check_admin_elevation():
     if not IS_WINDOWS:
         return
     try:
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            params = f'"{os.path.abspath(__file__)}"'
+        if not _is_admin():
+            # 打包版直接拉起 exe 本身，不需要传脚本路径：原来传的
+            # __file__ 在打包后指向 _internal 里不存在的 .py 路径，
+            # 虽然启动器会忽略多余参数，但传一个不存在的路径本身就是错的；
+            # 源码运行才需要把 main.py 路径当参数传给 python.exe。
+            if getattr(sys, "frozen", False):
+                params = None
+            else:
+                params = f'"{os.path.abspath(__file__)}"'
             res = ctypes.windll.shell32.ShellExecuteW(
                 None, "runas", sys.executable, params, None, 1
             )
+            # 提权结果必须记日志：之前这一步是黑盒，双击没起来时
+            # 根本不知道是 UAC 被拒、runas 失败，还是子进程没起来。
+            _log_info("APP", f"elevation: not admin, runas res={res} (>32 means child spawned)")
             if res > 32:
                 sys.exit(0)
-    except Exception:
-        pass
+            _log_info("APP", "elevation: runas did not spawn a child, continuing non-elevated")
+        else:
+            _log_info("APP", "elevation: already admin, no relaunch")
+    except Exception as e:
+        _log_info("APP", f"elevation: check failed ({e}), continuing non-elevated")
 
 def main():
-    check_admin_elevation()
-
+    # 异常钩子必须在提权之前就装好：提权、互斥、PID 任何一步崩了，
+    # 都要落在 debug_app.log 里，而不是静默死掉让用户猜。
     def _uncaught(exc_type, exc_val, exc_tb):
         import traceback
         err = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
         _log_error("APP", f"UNCAUGHT EXCEPTION:\n{err}")
     sys.excepthook = _uncaught
+
+    check_admin_elevation()
 
     # 智能单实例管理：Windows 用互斥体 + 终结旧进程；其他平台用 PID 存活检查。
     if IS_WINDOWS:
@@ -346,6 +370,9 @@ def main():
     app.setWindowIcon(get_app_icon())
 
     coordinator = AppCoordinator(app)
+    # 启动里程碑：托盘已建、钩子已起。双击没起来时，看日志有没有
+    # 这一行就能区分“死在提权/启动早期”还是“起来了但托盘图标没看见”。
+    _log_info("APP", f"started: admin={_is_admin()}, tray up, entering event loop")
     exit_code = app.exec()
 
     try:
