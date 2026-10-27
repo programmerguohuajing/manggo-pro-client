@@ -45,12 +45,17 @@ jobs:
           path: ManggoProClient-Windows-x64.zip
           retention-days: 30
       # 安装器：Inno Setup 6（windows-latest 自带 iscc，取不到时走默认安装路径）。
+      # 注意：SourceDir 必须传绝对路径——Inno Setup 的相对路径是相对
+      # .iss 文件所在目录（packaging/）解析的，传 dist\ManggoProClient
+      # 会被解析成 packaging\dist\… 而找不到文件（2026-10-27
+      # run 40473000391 实测）。
       - name: Build installer (Inno Setup)
         run: |
           $version = (Get-Content packaging/VERSION -Raw).Trim()
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
-          & $iscc packaging/installer.iss /DAppVersion=$version /DSourceDir=dist\ManggoProClient /Oinstaller-out
+          $src = Join-Path $PWD "dist\ManggoProClient"
+          & $iscc packaging/installer.iss /DAppVersion=$version /DSourceDir=$src /Oinstaller-out
           Get-ChildItem installer-out
       - uses: actions/upload-artifact@v4
         with:
