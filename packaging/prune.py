@@ -66,6 +66,12 @@ def _match(name: str, patterns) -> bool:
 
 
 def main() -> int:
+    # Windows runner 的 stdout 默认是 cp1252，中文汇总一打印就
+    # UnicodeEncodeError（2026-10-27 实测：删完了、打印时崩，整个 job 失败）。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     if len(sys.argv) != 2:
         print("用法：python packaging/prune.py <dist 目录或 .app>")
         return 2
