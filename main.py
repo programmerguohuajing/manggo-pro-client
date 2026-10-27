@@ -26,6 +26,7 @@ if IS_WINDOWS:
     import win32event
     import winerror
 
+from core.hotkeys import normalize_hotkeys
 from core.translator import TranslationManager
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
 from core.hook import GlobalKeyboardHook
@@ -107,14 +108,16 @@ class AppCoordinator(QObject):
             notify_callback=self._notify_bridge
         )
 
-        # 5. 全局低级键盘热键监听 (全面支持原版 Manggo 键位: Alt+D, Alt+X, Alt+Space, Alt+Shift+D, 3次空格)
+        # 5. 全局低级键盘热键监听：4 个组合键可在设置页自定义
+        # （默认 Alt+Q/W/M/Space），另加连续 3 次空格就地转译。
         self.hook = GlobalKeyboardHook(
             on_triple_space=self.replacer.trigger_triple_space_replace,
             on_selection_translate=self._on_hotkey_selection,
             on_screenshot_translate=self.open_snipping_signal.emit,
             on_voice_input=self.open_voice_signal.emit,
             on_open_main=self.open_main_signal.emit,
-            max_interval=self.config.get("max_interval_ms", 750) / 1000.0
+            max_interval=self.config.get("max_interval_ms", 750) / 1000.0,
+            hotkeys=normalize_hotkeys(self.config.get("hotkeys")),
         )
         self.hook.start()
 
@@ -250,6 +253,9 @@ class AppCoordinator(QObject):
         self.config = new_cfg
         self.trans_mgr.update_config(new_cfg)
         self.hook.max_interval = new_cfg.get("max_interval_ms", 550) / 1000.0
+        # 组合键改动即时生效：只重建判定表，不用重启钩子线程；
+        # 钩子暂停中（托盘暂停）改的键，恢复时按新表工作。
+        self.hook.update_hotkeys(new_cfg.get("hotkeys"))
         self.tray.set_engine_label(self._engine_label())
 
     def quit_app(self):

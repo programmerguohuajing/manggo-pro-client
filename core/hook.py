@@ -1,20 +1,24 @@
 """
-全局低级键盘钩子：
-- 划词悬浮翻译: Alt + Q (绝不占用 Alt+D)
-- 截图 OCR 识别: Alt + W (绝不占用 Alt+X)
-- 语音听写输入: Alt + Space
-- 呼出桌面工作台: Alt + M
-- 输入框就地转译: 连续 3 次空格 (Pro 核心)
-注：Alt+D 与 Alt+X 已完全释放，原封不动放行给外部应用。
+全局低级键盘钩子（仅 Windows，WH_KEYBOARD_LL）：
+- 4 个组合键动作：划选翻译、截图 OCR、工作台、语音听写，组合键可在
+  设置页自定义，默认 Alt+Q / Alt+W / Alt+M / Alt+Space，见 core/hotkeys.py。
+- 输入框就地转译：连续 3 次空格。
+组合键触发要求修饰键集合严格相等（例如设了 Alt+Shift+Q 就不会被
+Alt+Q 误触），触发后返回 1 吞掉该次按键，避免字符落到输入框里。
 """
 import ctypes
 from ctypes import wintypes
 import time
 import threading
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
 
 from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning
 from core.platform import IS_WINDOWS
+from core.hotkeys import (
+    ACTION_ORDER,
+    normalize_hotkeys,
+    parse_hotkey,
+)
 
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
 kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
@@ -29,10 +33,6 @@ VK_SPACE = 0x20
 VK_SHIFT = 0x10
 VK_CONTROL = 0x11
 VK_MENU = 0x12  # Alt
-
-VK_Q = 0x51     # Q (划词翻译，绝不占用 Alt+D)
-VK_W = 0x57     # W (截图 OCR 翻译，绝不占用 Alt+X)
-VK_M = 0x4D     # M (呼出主工作台)
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
     _fields_ = [
@@ -53,7 +53,8 @@ class GlobalKeyboardHook:
         on_screenshot_translate: Optional[Callable[[], None]] = None,
         on_voice_input: Optional[Callable[[], None]] = None,
         on_open_main: Optional[Callable[[], None]] = None,
-        max_interval: float = 0.55
+        max_interval: float = 0.55,
+        hotkeys: Optional[Dict[str, str]] = None,
     ):
         self.on_triple_space = on_triple_space
         self.on_selection_translate = on_selection_translate
@@ -61,6 +62,34 @@ class GlobalKeyboardHook:
         self.on_voice_input = on_voice_input
         self.on_open_main = on_open_main
         self.max_interval = max_interval
+        # 动作 -> (修饰键集合, 主键虚拟键码, 回调, 显示用组合键)
+        self._hotkey_table = []
+        self.hotkeys: Dict[str, str] = {}
+        self.update_hotkeys(hotkeys)
+
+    def update_hotkeys(self, hotkeys: Optional[Dict[str, str]]) -> None:
+        """重建组合键判定表；配置保存后调用即生效，无需重启钩子线程。
+
+        非法、重复的配置由 normalize_hotkeys 回退成一套可用的组合键，
+        这里不做二次校验，钩子永远按一张合法的表工作。
+        """
+        callbacks = {
+            "selection": self.on_selection_translate,
+            "screenshot": self.on_screenshot_translate,
+            "workbench": self.on_open_main,
+            "voice": self.on_voice_input,
+        }
+        normalized = normalize_hotkeys(hotkeys)
+        table = []
+        for action in ACTION_ORDER:
+            parsed = parse_hotkey(normalized[action])
+            if parsed is None:
+                continue
+            mods, vk, label = parsed
+            table.append((mods, vk, callbacks[action], label))
+        self._hotkey_table = table
+        self.hotkeys = normalized
+        _log_info("HOOK", f"Hotkeys updated: {normalized}")
 
         self.space_count = 0
         self.last_space_time = 0.0
@@ -85,43 +114,32 @@ class GlobalKeyboardHook:
 
             if is_down:
                 now = time.time()
-                # 检查 Alt 状态：结合 flags 的 LLKHF_ALTDOWN (0x20) 以及 GetAsyncKeyState 双重校验
-                alt_down = bool((flags & 0x20) or (user32.GetAsyncKeyState(VK_MENU) & 0x8000))
-                ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-                shift_down = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
+                # 修饰键状态：Alt 结合 flags 的 LLKHF_ALTDOWN (0x20) 以及
+                # GetAsyncKeyState 双重校验，Ctrl / Shift 只用 GetAsyncKeyState。
+                mods_down = set()
+                if (flags & 0x20) or (user32.GetAsyncKeyState(VK_MENU) & 0x8000):
+                    mods_down.add("Alt")
+                if user32.GetAsyncKeyState(VK_CONTROL) & 0x8000:
+                    mods_down.add("Ctrl")
+                if user32.GetAsyncKeyState(VK_SHIFT) & 0x8000:
+                    mods_down.add("Shift")
+                alt_down = "Alt" in mods_down
+                ctrl_down = "Ctrl" in mods_down
+                shift_down = "Shift" in mods_down
 
                 # 全量记录键盘击键日志便于诊断
                 _log_debug("HOOK", f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
 
-                # 1. 快捷键: 划词翻译 (严格仅使用 Alt+Q，绝不占用 Alt+D)
-                if alt_down and vk_code == VK_Q:
-                    _log_info("HOOK", ">>> Hotkey Selection Translate (Alt+Q) triggered! <<<")
-                    if self.on_selection_translate:
-                        threading.Thread(target=self.on_selection_translate, daemon=True).start()
-                    return 1
+                # 组合键：修饰键集合必须严格相等才触发，避免 Alt+Shift+Q
+                # 之类的按键同时触发 Alt+Q 的动作。
+                for mods, vk, callback, label in self._hotkey_table:
+                    if vk_code == vk and mods_down == mods:
+                        _log_info("HOOK", f">>> Hotkey {label} triggered! <<<")
+                        if callback:
+                            threading.Thread(target=callback, daemon=True).start()
+                        return 1
 
-                # 2. 快捷键: 截图 OCR 翻译 (严格仅使用 Alt+W，绝不占用 Alt+X)
-                if alt_down and vk_code == VK_W:
-                    _log_info("HOOK", ">>> Hotkey Screenshot OCR (Alt+W) triggered! <<<")
-                    if self.on_screenshot_translate:
-                        threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
-                    return 1
-
-                # 3. 快捷键: Alt + M (呼出桌面工作台)
-                if alt_down and vk_code == VK_M:
-                    _log_info("HOOK", ">>> Hotkey Alt+M triggered! <<<")
-                    if self.on_open_main:
-                        threading.Thread(target=self.on_open_main, daemon=True).start()
-                    return 1
-
-                # 4. 快捷键: Alt + Space (语音听写输入)
-                if alt_down and vk_code == VK_SPACE:
-                    _log_info("HOOK", ">>> Hotkey Alt+Space triggered! <<<")
-                    if self.on_voice_input:
-                        threading.Thread(target=self.on_voice_input, daemon=True).start()
-                    return 1
-
-                # 5. 核心 Pro 特性: 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
+                # 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
                 if vk_code == VK_SPACE and not alt_down and not ctrl_down:
                     delta = now - self.last_space_time if self.last_space_time > 0 else 0
                     if self.last_space_time > 0 and delta <= self.max_interval:

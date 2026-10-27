@@ -7,9 +7,9 @@ import json
 import time
 import webbrowser
 from typing import Callable
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QEvent
 from PySide6.QtWidgets import (
-    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QSpinBox, QSlider, QPushButton, QCheckBox, QFrame,
     QMessageBox, QTextEdit, QStackedWidget, QListWidget, QListWidgetItem,
     QGraphicsDropShadowEffect, QScrollArea, QSizePolicy, QListView
@@ -17,6 +17,14 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
 import pyperclip
 from core.tts import tts_player
+from core.hotkeys import (
+    ACTION_NAMES,
+    DEFAULT_HOTKEYS,
+    normalize_hotkeys,
+    parse_hotkey,
+    validate_hotkeys,
+)
+from core.platform import IS_WINDOWS
 from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
 from core.logging import error as _log_error
@@ -25,6 +33,7 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 DEFAULT_CONFIG = {
     "engine": "free",  # "free" 或 "llm"
+    "hotkeys": dict(DEFAULT_HOTKEYS),
     "triple_space_enabled": True,
     "max_interval_ms": 750,
     "llm_api_url": "https://api.deepseek.com/v1",
@@ -305,10 +314,10 @@ class SettingsWindow(QWidget):
 
         h_layout.addStretch()
 
-        btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+M)", header)
-        btn_go_main.setProperty("class", "SecondaryBtn")
-        btn_go_main.clicked.connect(self.open_main_requested.emit)
-        h_layout.addWidget(btn_go_main)
+        self.btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+M)", header)
+        self.btn_go_main.setProperty("class", "SecondaryBtn")
+        self.btn_go_main.clicked.connect(self.open_main_requested.emit)
+        h_layout.addWidget(self.btn_go_main)
 
         root_layout.addWidget(header)
 
@@ -572,21 +581,30 @@ class SettingsWindow(QWidget):
         c_layout = QVBoxLayout(card)
         c_layout.setSpacing(12)
 
-        lbl_t = QLabel("全局热键速查表 (全套对齐原版 Manggo)")
+        lbl_t = QLabel("全局热键（点【点击录制】可修改组合键，保存后立即生效）")
         lbl_t.setProperty("class", "SectionTitle")
         c_layout.addWidget(lbl_t)
 
-        hotkeys = [
-            ("连续 3 次空格 (Space)", "输入框就地转译 (Pro 核心特性)", "在任意应用（微信、Word、浏览器、代码编辑器）输入中文后连击 3 次空格，自动消除空格并将文字就地替换为英文。"),
-            ("Alt + Q", "划选文本悬浮翻译", "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片，支持朗读、复制、存入生词本（不占用 Alt+D）。"),
-            ("Alt + W", "全屏截图 OCR 文字识别", "全屏十字光标框选任意区域，毫秒级提取图像中的中英文文字并自动进行翻译对照（不占用 Alt+X）。"),
-            ("Alt + M", "呼出桌面翻译工作台", "沉浸式双栏对照翻译工作台，支持中英双向互译、生词本检索与长文本排版翻译。"),
-            ("Alt + Space", "语音输入与实时听写", "唤起麦克风拾音指示气泡，语音转文字直接打字上屏。"),
-            ("双击系统托盘图标", "打开偏好设置中心", "随时快速呼出本设置面板，调节连击灵敏度与切换大模型 Pro 通道。"),
-            ("Ctrl + Enter", "工作台立即翻译", "在主翻译工作台原文编辑框内一键提交翻译请求。")
+        # 待保存的组合键：录制时先改这里，点底部保存才写 config.json。
+        # 非 Windows 上全局钩子不存在，录制按钮置灰，只作展示。
+        self._hotkey_values = normalize_hotkeys(self.config.get("hotkeys"))
+        self._hotkey_badges = {}
+        self._hotkey_record_btns = {}
+        self._recording_action = None
+        self._filter_installed = False
+
+        # (动作 key 或 None, 徽章文字, 功能名, 说明)；动作为 None 的是固定项，不可改。
+        rows = [
+            ("selection", None, ACTION_NAMES["selection"], "鼠标高亮划选任意屏幕文本后按下，呼出多功能悬浮翻译卡片，支持朗读、复制、存入生词本。"),
+            ("screenshot", None, ACTION_NAMES["screenshot"], "全屏十字光标框选任意区域，提取图像中的中英文文字并自动进行翻译对照。"),
+            ("workbench", None, ACTION_NAMES["workbench"], "沉浸式双栏对照翻译工作台，支持中英双向互译、生词本检索与长文本排版翻译。"),
+            ("voice", None, ACTION_NAMES["voice"], "唤起麦克风拾音指示气泡，语音转文字直接打字上屏。"),
+            (None, "连续 3 次空格 (Space)", "输入框就地转译", "在任意应用输入中文后连击 3 次空格，自动消除空格并将文字就地替换为英文。开关与灵敏度在【快捷转译】页设置。"),
+            (None, "双击系统托盘图标", "打开偏好设置中心", "随时快速呼出本设置面板，调节连击灵敏度与切换翻译通道。"),
+            (None, "Ctrl + Enter", "工作台立即翻译", "在主翻译工作台原文编辑框内一键提交翻译请求。"),
         ]
 
-        for key, name, desc in hotkeys:
+        for action, key_text, name, desc in rows:
             row = QFrame()
             row.setStyleSheet(f"background-color: {theme.SURFACE_MUTED}; border: 1px solid {theme.SURFACE_GRAY}; border-radius: 8px; padding: 10px 12px;")
             r_l = QVBoxLayout(row)
@@ -601,8 +619,19 @@ class SettingsWindow(QWidget):
 
             h_top.addStretch()
 
-            lbl_badge = QLabel(key)
+            if action is not None:
+                btn_record = QPushButton("点击录制")
+                btn_record.setProperty("class", "SecondaryBtn")
+                btn_record.setEnabled(IS_WINDOWS)
+                btn_record.clicked.connect(lambda _=False, a=action: self._start_recording(a))
+                self._hotkey_record_btns[action] = btn_record
+                h_top.addWidget(btn_record)
+
+            badge_text = self._hotkey_values[action] if action is not None else key_text
+            lbl_badge = QLabel(badge_text)
             lbl_badge.setStyleSheet(f"background: {theme.ACCENT_SOFT_BG}; color: {theme.ACCENT}; border: 1px solid {theme.ACCENT_SOFT_BORDER}; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: {theme.FONT_MONO};")
+            if action is not None:
+                self._hotkey_badges[action] = lbl_badge
             h_top.addWidget(lbl_badge)
             r_l.addLayout(h_top)
 
@@ -614,11 +643,125 @@ class SettingsWindow(QWidget):
 
             c_layout.addWidget(row)
 
+        # 录制说明 + 恢复默认：放在卡片底部，不随行循环重复。
+        self.lbl_hotkey_status = QLabel(
+            "录制方法：点【点击录制】后直接按下组合键（需带 Alt / Ctrl / Shift，Win 键不支持）；按 Esc 取消。"
+            if IS_WINDOWS else
+            "全局热键仅支持 Windows，当前平台下录制不可用；这里只展示默认组合键。"
+        )
+        self.lbl_hotkey_status.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
+        self.lbl_hotkey_status.setWordWrap(True)
+        c_layout.addWidget(self.lbl_hotkey_status)
+
+        h_restore = QHBoxLayout()
+        h_restore.addStretch()
+        btn_restore = QPushButton("恢复默认")
+        btn_restore.setProperty("class", "SecondaryBtn")
+        btn_restore.setEnabled(IS_WINDOWS)
+        btn_restore.clicked.connect(self._restore_default_hotkeys)
+        h_restore.addWidget(btn_restore)
+        c_layout.addLayout(h_restore)
+
         l.addWidget(card)
         l.addStretch()
 
         scroll.setWidget(container)
         return scroll
+
+    # ---------------- 热键录制 ----------------
+    @staticmethod
+    def _qt_key_name(key: int):
+        """把 Qt 按键码转成热键主键名；不支持的键返回 None。"""
+        if 0x41 <= key <= 0x5A or 0x30 <= key <= 0x39:
+            return chr(key)
+        if key == 0x20:
+            return "Space"
+        if 0x01000030 <= key <= 0x0100003B:  # F1-F12
+            return f"F{key - 0x01000030 + 1}"
+        return None
+
+    def _start_recording(self, action: str):
+        if self._recording_action is not None:
+            self._cancel_recording()
+        self._recording_action = action
+        btn = self._hotkey_record_btns[action]
+        btn.setText("请按下组合键…（Esc 取消）")
+        app = QApplication.instance()
+        if app is not None and not self._filter_installed:
+            app.installEventFilter(self)
+            self._filter_installed = True
+        self.lbl_hotkey_status.setText(f"正在录制【{ACTION_NAMES[action]}】，请按下组合键…")
+
+    def _finish_recording(self):
+        if self._recording_action is not None:
+            self._hotkey_record_btns[self._recording_action].setText("点击录制")
+        self._recording_action = None
+        app = QApplication.instance()
+        if app is not None and self._filter_installed:
+            app.removeEventFilter(self)
+            self._filter_installed = False
+
+    def _cancel_recording(self):
+        self._finish_recording()
+        self.lbl_hotkey_status.setText("已取消录制，组合键未改动。")
+
+    def _restore_default_hotkeys(self):
+        if self._recording_action is not None:
+            self._cancel_recording()
+        self._hotkey_values = dict(DEFAULT_HOTKEYS)
+        self._refresh_hotkey_rows()
+        self.lbl_hotkey_status.setText("已恢复默认组合键，点底部【保存并应用】后生效。")
+
+    def _refresh_hotkey_rows(self):
+        for action, badge in self._hotkey_badges.items():
+            badge.setText(self._hotkey_values[action])
+
+    def eventFilter(self, obj, event):
+        # 只在录制期间拦截按键；其他时候原样放行，避免影响正常输入。
+        if self._recording_action is not None and event.type() == QEvent.Type.KeyPress:
+            return self._on_record_key(event)
+        return super().eventFilter(obj, event)
+
+    def _on_record_key(self, event) -> bool:
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_recording()
+            return True
+        # 纯修饰键：等主键，不吞之外的行为也无妨，吞掉可避免按钮误触发。
+        if key in (Qt.Key.Key_Alt, Qt.Key.Key_Control, Qt.Key.Key_Shift,
+                   Qt.Key.Key_Meta, Qt.Key.Key_AltGr, Qt.Key.Key_CapsLock):
+            return True
+        mods = []
+        m = event.modifiers()
+        if m & Qt.KeyboardModifier.AltModifier:
+            mods.append("Alt")
+        if m & Qt.KeyboardModifier.ControlModifier:
+            mods.append("Ctrl")
+        if m & Qt.KeyboardModifier.ShiftModifier:
+            mods.append("Shift")
+        main = self._qt_key_name(key)
+        action = self._recording_action
+        if main is None:
+            self.lbl_hotkey_status.setText("该按键不支持作为热键主键，请用字母、数字、F1-F12 或 Space。")
+            return True
+        if not mods:
+            self.lbl_hotkey_status.setText("请带上 Alt / Ctrl / Shift 再按一次（单独按键不能做全局热键）。")
+            return True
+        combo = "+".join(mods + [main])
+        parsed = parse_hotkey(combo)
+        if parsed is None:
+            self.lbl_hotkey_status.setText(f"组合键“{combo}”无效，请换一个。")
+            return True
+        combo = parsed[2]
+        for other, value in self._hotkey_values.items():
+            if other != action and value == combo:
+                QMessageBox.warning(self, "组合键重复", f"“{combo}”已用于【{ACTION_NAMES[other]}】，请换一个。")
+                return True
+        self._hotkey_values[action] = combo
+        self._hotkey_badges[action].setText(combo)
+        self._finish_recording()
+        self.lbl_hotkey_status.setText(f"已录制【{ACTION_NAMES[action]}】：{combo}，点底部【保存并应用】后生效。")
+        return True
 
     # ---------------- 选项卡 4: 关于与状态 ----------------
     def _build_about_tab(self) -> QWidget:
@@ -707,6 +850,12 @@ class SettingsWindow(QWidget):
             self.txt_prompt.setPlainText(content)
 
     def _load_values(self):
+        # 热键行：配置里的非法/重复项在 normalize 里已回退，这里如实显示回退结果。
+        self._hotkey_values = normalize_hotkeys(self.config.get("hotkeys"))
+        if hasattr(self, "_hotkey_badges"):
+            self._refresh_hotkey_rows()
+        if hasattr(self, "btn_go_main"):
+            self.btn_go_main.setText(f"🖥️ 打开主工作台 ({self._hotkey_values['workbench']})")
         self.chk_triple_space.setChecked(self.config.get("triple_space_enabled", True))
         inv = self.config.get("max_interval_ms", 750)
         self.spn_interval.setValue(inv)
@@ -724,6 +873,7 @@ class SettingsWindow(QWidget):
     def _gather_config(self) -> dict:
         return {
             "engine": "llm" if self.cmb_engine.currentIndex() == 1 else "free",
+            "hotkeys": dict(getattr(self, "_hotkey_values", normalize_hotkeys(self.config.get("hotkeys")))),
             "triple_space_enabled": self.chk_triple_space.isChecked(),
             "max_interval_ms": self.spn_interval.value(),
             "llm_api_url": self.txt_url.text().strip(),
@@ -773,10 +923,18 @@ class SettingsWindow(QWidget):
             dlg.exec()
 
     def _save_and_apply(self):
+        if self._recording_action is not None:
+            self._cancel_recording()
         new_cfg = self._gather_config()
+        err = validate_hotkeys(new_cfg.get("hotkeys"))
+        if err:
+            QMessageBox.warning(self, "热键无效", err + "，请重新录制后再保存。")
+            return
         self.config = new_cfg
         save_config(new_cfg)
         self.config_changed.emit(new_cfg)
+        if hasattr(self, "btn_go_main"):
+            self.btn_go_main.setText(f"🖥️ 打开主工作台 ({new_cfg['hotkeys']['workbench']})")
         self.lbl_status.setText("✓ 配置已保存并实时生效")
         QMessageBox.information(self, "保存成功", "所有偏好配置已成功保存并立即生效！")
         self.hide()
