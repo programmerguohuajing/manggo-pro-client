@@ -1,11 +1,17 @@
 """
 系统托盘与图标管理 (100% 对齐原版 Manggo 功能矩阵)
 """
+import os
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 
+ICON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "app.ico")
+
 def create_mango_icon() -> QIcon:
+    if os.path.exists(ICON_PATH):
+        return QIcon(ICON_PATH)
+
     pixmap = QPixmap(32, 32)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
@@ -28,6 +34,9 @@ def create_mango_icon() -> QIcon:
     painter.end()
     return QIcon(pixmap)
 
+def get_app_icon() -> QIcon:
+    return create_mango_icon()
+
 class TrayManager(QObject):
     open_main_requested = Signal()
     open_selection_requested = Signal()
@@ -40,7 +49,8 @@ class TrayManager(QObject):
 
     def __init__(self, initial_enabled: bool = True, parent=None):
         super().__init__(parent)
-        self.tray_icon = QSystemTrayIcon(create_mango_icon(), parent)
+        self.icon = get_app_icon()
+        self.tray_icon = QSystemTrayIcon(self.icon, self)
         self.tray_icon.setToolTip("Manggo Pro Client (双击打开设置)")
         self._build_menu(initial_enabled)
         self.tray_icon.activated.connect(self._on_tray_activated)

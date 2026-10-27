@@ -35,10 +35,13 @@ from ui.voice_window import VoiceInputWindow
 from ui.main_window import MainWindow
 from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
-from ui.tray import TrayManager
+from ui.tray import TrayManager, get_app_icon
 
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
 user32.GetClipboardSequenceNumber.restype = ctypes.c_ulong
+
+PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app.pid")
 
 def force_activate_window(win):
     """确保指定窗口在 Windows 上从后台、最小化或遮挡状态强制置顶并获得焦点"""
@@ -224,6 +227,11 @@ class AppCoordinator(QObject):
 
     def quit_app(self):
         self.hook.stop()
+        try:
+            if os.path.exists(PID_FILE):
+                os.remove(PID_FILE)
+        except Exception:
+            pass
         self.app.quit()
 
 def main():
@@ -237,26 +245,45 @@ def main():
             pass
     sys.excepthook = _uncaught
 
-    # 会话级互斥体，防止重复启动冲突
+    # 智能单实例管理：若已有旧实例存在，自动终结旧进程并启动全新干净会话
     mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
-        app = QApplication(sys.argv)
-        QMessageBox.information(
-            None,
-            "Manggo Pro 已在运行中",
-            "Manggo Pro 客户端当前已在后台正常运行中！\n\n"
-            "• 请查看屏幕右下角任务栏托盘区（若未直接显示，请点击“^”展开箭头查看金黄色芒果图标）。\n"
-            "• 双击托盘图标：可打开偏好设置中心。\n"
-            "• 快捷键：Alt+Q 划词翻译，Alt+W 截图 OCR，Alt+M 呼出工作台。\n"
-            "• 在任意输入框输入中文后轻按 3 次空格即可自动就地转译。"
-        )
-        sys.exit(0)
+        if os.path.exists(PID_FILE):
+            try:
+                with open(PID_FILE, "r") as f:
+                    old_pid = int(f.read().strip())
+                if old_pid != os.getpid():
+                    h_proc = kernel32.OpenProcess(0x0001, False, old_pid)
+                    if h_proc:
+                        kernel32.TerminateProcess(h_proc, 0)
+                        kernel32.CloseHandle(h_proc)
+                        time.sleep(0.2)
+            except Exception:
+                pass
+        # 重新创建互斥体
+        if mutex:
+            win32api.CloseHandle(mutex)
+        mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
+
+    # 记录当前进程 PID
+    try:
+        with open(PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setWindowIcon(get_app_icon())
 
     coordinator = AppCoordinator(app)
     exit_code = app.exec()
+
+    try:
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+    except Exception:
+        pass
 
     if mutex:
         win32api.CloseHandle(mutex)
