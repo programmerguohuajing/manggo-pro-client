@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QColor, QCursor, QGuiApplication
 import pyperclip
 
+from ui import theme
+
 from core.tts import tts_player
 from core.database import db
 
@@ -35,12 +37,12 @@ class FloatResultWindow(QWidget):
         root_layout.setContentsMargins(10, 10, 10, 10)
 
         self.card = QFrame(self)
-        self.card.setStyleSheet("""
-            QFrame {
-                background-color: #ffffff;
+        self.card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {theme.SURFACE};
                 border-radius: 12px;
-                border: 1px solid #e1e8ed;
-            }
+                border: 1px solid {theme.BORDER};
+            }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
@@ -56,7 +58,7 @@ class FloatResultWindow(QWidget):
         top_bar = QHBoxLayout()
         self.lbl_title = QLabel("Manggo 快捷翻译", self.card)
         self.lbl_title.setFont(QFont("Microsoft YaHei", 9, QFont.Bold))
-        self.lbl_title.setStyleSheet("color: #e67e22; border: none;")
+        self.lbl_title.setStyleSheet(f"color: {theme.ACCENT}; border: none;")
         top_bar.addWidget(self.lbl_title)
 
         top_bar.addStretch()
@@ -64,14 +66,14 @@ class FloatResultWindow(QWidget):
         self.btn_star = QPushButton("☆", self.card)
         self.btn_star.setToolTip("收藏到生词本")
         self.btn_star.setFixedSize(24, 24)
-        self.btn_star.setStyleSheet("border: none; font-size: 15px; color: #f39c12; cursor: pointer;")
+        self.btn_star.setStyleSheet(f"border: none; font-size: 15px; color: {theme.STAR}; cursor: pointer;")
         self.btn_star.clicked.connect(self._toggle_star)
         top_bar.addWidget(self.btn_star)
 
         btn_close = QPushButton("✕", self.card)
         btn_close.setToolTip("关闭")
         btn_close.setFixedSize(24, 24)
-        btn_close.setStyleSheet("border: none; font-size: 13px; color: #95a5a6; cursor: pointer;")
+        btn_close.setStyleSheet(f"border: none; font-size: 13px; color: {theme.TEXT_FAINT}; cursor: pointer;")
         btn_close.clicked.connect(self.hide)
         top_bar.addWidget(btn_close)
         card_layout.addLayout(top_bar)
@@ -82,13 +84,13 @@ class FloatResultWindow(QWidget):
         h_src_bar.addStretch()
         btn_speak_src = QPushButton("🔊 朗读", self.card)
         btn_speak_src.setFixedSize(60, 20)
-        btn_speak_src.setStyleSheet("font-size: 11px; border: 1px solid #dcdde1; border-radius: 4px; color: #576574;")
+        btn_speak_src.setStyleSheet(theme.small_action_stylesheet())
         btn_speak_src.clicked.connect(lambda: tts_player.speak(self.current_source_text))
         h_src_bar.addWidget(btn_speak_src)
 
         btn_copy_src = QPushButton("📋 复制", self.card)
         btn_copy_src.setFixedSize(60, 20)
-        btn_copy_src.setStyleSheet("font-size: 11px; border: 1px solid #dcdde1; border-radius: 4px; color: #576574;")
+        btn_copy_src.setStyleSheet(theme.small_action_stylesheet())
         btn_copy_src.clicked.connect(lambda: pyperclip.copy(self.current_source_text))
         h_src_bar.addWidget(btn_copy_src)
         card_layout.addLayout(h_src_bar)
@@ -96,32 +98,32 @@ class FloatResultWindow(QWidget):
         self.txt_source = QTextEdit(self.card)
         self.txt_source.setReadOnly(True)
         self.txt_source.setFixedHeight(60)
-        self.txt_source.setStyleSheet("border: 1px solid #edf2f7; border-radius: 6px; background: #f8fafc; font-size: 12px; padding: 4px;")
+        self.txt_source.setStyleSheet(f"border: 1px solid {theme.BORDER}; border-radius: 6px; background: {theme.SURFACE_MUTED}; font-size: 12px; padding: 4px;")
         card_layout.addWidget(self.txt_source)
 
         # 3. 译文展示与操作
         h_tgt_bar = QHBoxLayout()
         lbl_trans_tag = QLabel("译文:", self.card)
-        lbl_trans_tag.setStyleSheet("font-weight: bold; color: #2ecc71;")
+        lbl_trans_tag.setStyleSheet(f"font-weight: bold; color: {theme.SUCCESS};")
         h_tgt_bar.addWidget(lbl_trans_tag)
         h_tgt_bar.addStretch()
 
         btn_speak_tgt = QPushButton("🔊 朗读", self.card)
         btn_speak_tgt.setFixedSize(60, 20)
-        btn_speak_tgt.setStyleSheet("font-size: 11px; border: 1px solid #dcdde1; border-radius: 4px; color: #576574;")
+        btn_speak_tgt.setStyleSheet(theme.small_action_stylesheet())
         btn_speak_tgt.clicked.connect(lambda: tts_player.speak(self.current_target_text))
         h_tgt_bar.addWidget(btn_speak_tgt)
 
         btn_copy_tgt = QPushButton("📋 复制", self.card)
         btn_copy_tgt.setFixedSize(60, 20)
-        btn_copy_tgt.setStyleSheet("font-size: 11px; border: 1px solid #dcdde1; border-radius: 4px; color: #576574;")
+        btn_copy_tgt.setStyleSheet(theme.small_action_stylesheet())
         btn_copy_tgt.clicked.connect(lambda: pyperclip.copy(self.current_target_text))
         h_tgt_bar.addWidget(btn_copy_tgt)
         card_layout.addLayout(h_tgt_bar)
 
         self.txt_target = QTextEdit(self.card)
         self.txt_target.setReadOnly(True)
-        self.txt_target.setStyleSheet("border: 1px solid #c8d6e5; border-radius: 6px; background: #ffffff; font-size: 13px; font-weight: 500; color: #222f3e; padding: 4px;")
+        self.txt_target.setStyleSheet(f"border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px; background: {theme.SURFACE}; font-size: 13px; font-weight: 500; color: {theme.TEXT_PRIMARY}; padding: 4px;")
         card_layout.addWidget(self.txt_target)
 
         root_layout.addWidget(self.card)

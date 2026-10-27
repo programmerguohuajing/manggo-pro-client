@@ -1,6 +1,7 @@
 """
 语音朗读 (TTS) 模块：调用 Windows 原生 SAPI 语音引擎，纯离线极速播放
 """
+from core.logging import error as _log_error
 import threading
 import pythoncom
 import win32com.client
@@ -25,7 +26,7 @@ class TTSPlayer:
                 speaker.Volume = 100
                 speaker.Speak(text)
             except Exception as e:
-                print(f"[TTS] Error: {e}")
+                _log_error("TTS", f"Error: {e}")
             finally:
                 pythoncom.CoUninitialize()
 

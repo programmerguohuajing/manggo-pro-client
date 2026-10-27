@@ -24,7 +24,8 @@ import winerror
 
 from core.translator import TranslationManager
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
-from core.hook import GlobalKeyboardHook, _log
+from core.hook import GlobalKeyboardHook
+from core.logging import error as _log_error, info as _log_info
 from core.ocr import ocr_engine
 from core.database import db
 
@@ -35,7 +36,9 @@ from ui.voice_window import VoiceInputWindow
 from ui.main_window import MainWindow
 from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
-from ui.tray import TrayManager, get_app_icon
+from ui.icons import get_app_icon
+from ui.tray import TrayManager
+from ui.console_window import ConsoleWindow
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -83,7 +86,11 @@ class AppCoordinator(QObject):
         self.main_win = MainWindow(self.trans_mgr)
         self.history_win = HistoryWindow()
         self.settings_win = SettingsWindow()
-        self.tray = TrayManager(initial_enabled=self.config.get("triple_space_enabled", True))
+        self.console_win = ConsoleWindow()
+        self.tray = TrayManager(
+            initial_enabled=self.config.get("triple_space_enabled", True),
+            engine_label=self._engine_label(),
+        )
 
         # 3. 信号绑定
         self._bind_signals()
@@ -108,6 +115,12 @@ class AppCoordinator(QObject):
         # 欢迎提示
         self.toast.show_message("success", "Manggo Pro 全功能已就绪 (双击托盘打开设置, 3次空格转译)")
 
+    def _engine_label(self) -> str:
+        if self.config.get("engine") == "llm":
+            model = self.config.get("llm_model", "") or ""
+            return f"大模型 ({model})" if model else "大模型通道"
+        return "内置极速通道"
+
     def _bind_signals(self):
         # 基础信号槽连接
         self.notify_signal.connect(self.toast.show_message)
@@ -127,6 +140,7 @@ class AppCoordinator(QObject):
         self.tray.open_voice_requested.connect(self.voice_win.start_listening)
         self.tray.open_history_requested.connect(lambda: force_activate_window(self.history_win))
         self.tray.open_settings_requested.connect(lambda: force_activate_window(self.settings_win))
+        self.tray.open_console_requested.connect(lambda: force_activate_window(self.console_win))
         self.tray.toggle_triple_space_requested.connect(self._on_toggle_hook)
         self.tray.exit_requested.connect(self.quit_app)
 
@@ -178,10 +192,10 @@ class AppCoordinator(QObject):
                 pass
 
         if captured:
-            _log(f"[SELECTION] Captured: {repr(captured[:30])}")
+            _log_info("APP", f"[SELECTION] Captured: {repr(captured[:30])}")
             self.selection_translate_signal.emit(captured)
         else:
-            _log("[SELECTION] Failed: No selection text captured")
+            _log_info("APP", "[SELECTION] Failed: No selection text captured")
             self.notify_signal.emit("failed", "未检测到鼠标选中文本")
 
     @Slot(str)
@@ -223,6 +237,7 @@ class AppCoordinator(QObject):
         self.config = new_cfg
         self.trans_mgr.update_config(new_cfg)
         self.hook.max_interval = new_cfg.get("max_interval_ms", 550) / 1000.0
+        self.tray.set_engine_label(self._engine_label())
 
     def quit_app(self):
         self.hook.stop()
@@ -254,11 +269,7 @@ def main():
     def _uncaught(exc_type, exc_val, exc_tb):
         import traceback
         err = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-        try:
-            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_app.log"), "a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%H:%M:%S')}] UNCAUGHT EXCEPTION:\n{err}\n")
-        except Exception:
-            pass
+        _log_error("APP", f"UNCAUGHT EXCEPTION:\n{err}")
     sys.excepthook = _uncaught
 
     # 智能单实例管理：若已有旧实例存在，自动终结旧进程并启动全新干净会话

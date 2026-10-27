@@ -1,41 +1,22 @@
 """
-系统托盘与图标管理 (100% 对齐原版 Manggo 功能矩阵)
+系统托盘展示层：只负责图标、菜单、提示与信号转发，不碰翻译与钩子逻辑。
+
+重构点（行为保持不变，新增一项）：
+- 图标绘制迁移到 ui/icons.py，这里只引用；
+- 菜单套用 ui/theme.py 的托盘样式，不再是原生裸菜单；
+- 状态行与工具提示改为实时刷新：运行 / 暂停 + 当前翻译通道；
+- 新增“诊断控制台”入口（open_console_requested），其余 8 个信号原样保留；
+- 启动气泡文案缩短，不再堆三行说明。
 """
-import os
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Signal, QObject
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 
-ICON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "app.ico")
+from ui import theme
+from ui.icons import get_app_icon
 
-def create_mango_icon() -> QIcon:
-    if os.path.exists(ICON_PATH):
-        return QIcon(ICON_PATH)
+# 兼容旧导入：main.py 之前从这里取图标，现图标住在 ui/icons.py。
+__all__ = ["TrayManager", "get_app_icon"]
 
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-
-    # 芒果金黄主体
-    painter.setBrush(QColor(255, 165, 0))
-    painter.setPen(Qt.NoPen)
-    painter.drawEllipse(4, 6, 24, 22)
-
-    # 嫩绿叶片
-    painter.setBrush(QColor(46, 204, 113))
-    painter.drawEllipse(16, 2, 8, 6)
-
-    # 标识字符 M
-    painter.setPen(QColor(255, 255, 255))
-    painter.setFont(QFont("Arial", 11, QFont.Bold))
-    painter.drawText(pixmap.rect(), Qt.AlignCenter, "M")
-
-    painter.end()
-    return QIcon(pixmap)
-
-def get_app_icon() -> QIcon:
-    return create_mango_icon()
 
 class TrayManager(QObject):
     open_main_requested = Signal()
@@ -44,27 +25,30 @@ class TrayManager(QObject):
     open_voice_requested = Signal()
     open_history_requested = Signal()
     open_settings_requested = Signal()
+    open_console_requested = Signal()
     toggle_triple_space_requested = Signal(bool)
     exit_requested = Signal()
 
-    def __init__(self, initial_enabled: bool = True, parent=None):
+    def __init__(self, initial_enabled: bool = True, engine_label: str = "内置极速通道", parent=None):
         super().__init__(parent)
         self.icon = get_app_icon()
         self.tray_icon = QSystemTrayIcon(self.icon, self)
-        self.tray_icon.setToolTip("Manggo Pro Client (双击打开设置)")
-        self._build_menu(initial_enabled)
+        self.enabled = initial_enabled
+        self.engine_label = engine_label
+        self._build_menu()
+        self._refresh_status()
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
-        # 弹出原生 Windows 托盘气泡通知，即使在 Windows 11 图标默认折叠在“^”隐藏区时也能清晰提示
         self.tray_icon.showMessage(
             "Manggo Pro 助手已就绪",
-            "服务已在系统托盘运行中 (如任务栏未直接显示请点击右下角“^”箭头)。\n• 双击托盘图标打开设置中心\n• 连续 3 次空格自动转译",
+            "服务已在系统托盘运行中，双击图标打开设置。",
             QSystemTrayIcon.Information,
-            3500
+            3500,
         )
 
-    def _build_menu(self, enabled: bool):
+    def _build_menu(self):
         menu = QMenu()
+        menu.setStyleSheet(theme.TRAY_MENU_STYLESHEET)
 
         act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+M)")
         act_main.triggered.connect(self.open_main_requested.emit)
@@ -83,14 +67,17 @@ class TrayManager(QObject):
 
         menu.addSeparator()
 
-        self.act_status = menu.addAction("⚡ 快捷转译: 运行中" if enabled else "⚡ 快捷转译: 已暂停")
+        self.act_status = menu.addAction("")
         self.act_status.setEnabled(False)
 
-        self.act_toggle = menu.addAction("暂停三次空格转译" if enabled else "启用三次空格转译")
+        self.act_toggle = menu.addAction("")
         self.act_toggle.triggered.connect(self._on_toggle)
 
         act_settings = menu.addAction("⚙️ 软件偏好设置 (API & 参数)...")
         act_settings.triggered.connect(self.open_settings_requested.emit)
+
+        act_console = menu.addAction("🪵 诊断控制台 (运行日志)...")
+        act_console.triggered.connect(self.open_console_requested.emit)
 
         menu.addSeparator()
 
@@ -98,12 +85,23 @@ class TrayManager(QObject):
         act_exit.triggered.connect(self.exit_requested.emit)
 
         self.tray_icon.setContextMenu(menu)
-        self.enabled = enabled
+
+    def _refresh_status(self):
+        state = "运行中" if self.enabled else "已暂停"
+        self.act_status.setText(f"⚡ 快捷转译：{state} · {self.engine_label}")
+        self.act_toggle.setText("暂停三次空格转译" if self.enabled else "启用三次空格转译")
+        self.tray_icon.setToolTip(
+            f"Manggo Pro Client\n快捷转译：{state}\n翻译通道：{self.engine_label}\n双击打开设置"
+        )
+
+    def set_engine_label(self, engine_label: str):
+        """配置变更时由 AppCoordinator 调用，只刷新展示，不改任何逻辑。"""
+        self.engine_label = engine_label
+        self._refresh_status()
 
     def _on_toggle(self):
         self.enabled = not self.enabled
-        self.act_status.setText("⚡ 快捷转译: 运行中" if self.enabled else "⚡ 快捷转译: 已暂停")
-        self.act_toggle.setText("暂停三次空格转译" if self.enabled else "启用三次空格转译")
+        self._refresh_status()
         self.toggle_triple_space_requested.emit(self.enabled)
 
     def _on_tray_activated(self, reason):

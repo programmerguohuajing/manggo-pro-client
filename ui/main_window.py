@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QIcon
 import pyperclip
 
+from ui import theme
+
 from core.tts import tts_player
 from core.database import db
 
@@ -22,6 +24,7 @@ class MainWindow(QWidget):
         self.translator_mgr = translator_mgr
         self.setWindowTitle("Manggo Pro - 桌面翻译工作台")
         self.resize(780, 520)
+        self.setStyleSheet(theme.WINDOW_STYLESHEET)
 
         self._init_ui()
 
@@ -34,23 +37,23 @@ class MainWindow(QWidget):
         top_bar = QHBoxLayout()
         lbl_app_logo = QLabel("🥭 Manggo Pro", self)
         lbl_app_logo.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        lbl_app_logo.setStyleSheet("color: #e67e22;")
+        lbl_app_logo.setStyleSheet(f"color: {theme.ACCENT};")
         top_bar.addWidget(lbl_app_logo)
 
         top_bar.addStretch()
 
         self.btn_snip = QPushButton("📷 截图翻译 (Alt+W)", self)
-        self.btn_snip.setStyleSheet("padding: 5px 12px; border-radius: 4px; background: #f1f2f6;")
+        self.btn_snip.setProperty("class", "SecondaryBtn")
         self.btn_snip.clicked.connect(self.request_snipping.emit)
         top_bar.addWidget(self.btn_snip)
 
         self.btn_history = QPushButton("📖 历史 & 生词本", self)
-        self.btn_history.setStyleSheet("padding: 5px 12px; border-radius: 4px; background: #f1f2f6;")
+        self.btn_history.setProperty("class", "SecondaryBtn")
         self.btn_history.clicked.connect(self.request_history.emit)
         top_bar.addWidget(self.btn_history)
 
         self.btn_cfg = QPushButton("⚙️ 设置", self)
-        self.btn_cfg.setStyleSheet("padding: 5px 12px; border-radius: 4px; background: #f1f2f6;")
+        self.btn_cfg.setProperty("class", "SecondaryBtn")
         self.btn_cfg.clicked.connect(self.request_settings.emit)
         top_bar.addWidget(self.btn_cfg)
 
@@ -74,7 +77,7 @@ class MainWindow(QWidget):
         lang_bar.addStretch()
 
         self.btn_translate = QPushButton("立即翻译 (Ctrl+Enter)", self)
-        self.btn_translate.setStyleSheet("background: #27ae60; color: white; font-weight: bold; padding: 6px 18px; border-radius: 4px;")
+        self.btn_translate.setProperty("class", "PrimaryBtn")
         self.btn_translate.clicked.connect(self.do_translate)
         lang_bar.addWidget(self.btn_translate)
 
@@ -112,7 +115,7 @@ class MainWindow(QWidget):
 
         h_right_tools = QHBoxLayout()
         lbl_target_tag = QLabel("译文结果:")
-        lbl_target_tag.setStyleSheet("color: #27ae60; font-weight: bold;")
+        lbl_target_tag.setStyleSheet(f"color: {theme.SUCCESS}; font-weight: bold;")
         h_right_tools.addWidget(lbl_target_tag)
         h_right_tools.addStretch()
         btn_speak_tgt = QPushButton("🔊 朗读")
@@ -126,7 +129,7 @@ class MainWindow(QWidget):
         self.txt_target = QTextEdit(self)
         self.txt_target.setFont(QFont("Microsoft YaHei", 11))
         self.txt_target.setReadOnly(True)
-        self.txt_target.setStyleSheet("background: #fbfbfb;")
+        self.txt_target.setStyleSheet(f"background: {theme.SURFACE_MUTED};")
         r_layout.addWidget(self.txt_target)
         splitter.addWidget(right_panel)
 

@@ -1,6 +1,7 @@
 """
 本地数据存储模块：使用 SQLite 保存翻译历史记录与生词本
 """
+from core.logging import error as _log_error
 import os
 import sqlite3
 import datetime
@@ -65,7 +66,7 @@ class HistoryDB:
                         imported += 1
                 my_conn.commit()
         except Exception as e:
-            print(f"[DB] Error syncing original manggo history: {e}")
+            _log_error("DB", f"Error syncing original manggo history: {e}")
         return imported
 
     def add_record(self, source_text: str, target_text: str, source_type: str = "manual", source_lang: str = "auto", target_lang: str = "en") -> int:

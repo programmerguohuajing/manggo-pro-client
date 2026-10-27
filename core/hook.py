@@ -10,21 +10,13 @@
 import ctypes
 from ctypes import wintypes
 import time
-import os
 import threading
 from typing import Callable, Optional
 
+from core.logging import debug as _log_debug, info as _log_info
+
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
-
-LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log")
-
-def _log(msg: str):
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}.{int(time.time()*1000)%1000:03d}] {msg}\n")
-    except Exception:
-        pass
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -98,32 +90,32 @@ class GlobalKeyboardHook:
                 shift_down = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
 
                 # 全量记录键盘击键日志便于诊断
-                _log(f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
+                _log_debug("HOOK", f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
 
                 # 1. 快捷键: 划词翻译 (严格仅使用 Alt+Q，绝不占用 Alt+D)
                 if alt_down and vk_code == VK_Q:
-                    _log(">>> Hotkey Selection Translate (Alt+Q) triggered! <<<")
+                    _log_info("HOOK", ">>> Hotkey Selection Translate (Alt+Q) triggered! <<<")
                     if self.on_selection_translate:
                         threading.Thread(target=self.on_selection_translate, daemon=True).start()
                     return 1
 
                 # 2. 快捷键: 截图 OCR 翻译 (严格仅使用 Alt+W，绝不占用 Alt+X)
                 if alt_down and vk_code == VK_W:
-                    _log(">>> Hotkey Screenshot OCR (Alt+W) triggered! <<<")
+                    _log_info("HOOK", ">>> Hotkey Screenshot OCR (Alt+W) triggered! <<<")
                     if self.on_screenshot_translate:
                         threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
                     return 1
 
                 # 3. 快捷键: Alt + M (呼出桌面工作台)
                 if alt_down and vk_code == VK_M:
-                    _log(">>> Hotkey Alt+M triggered! <<<")
+                    _log_info("HOOK", ">>> Hotkey Alt+M triggered! <<<")
                     if self.on_open_main:
                         threading.Thread(target=self.on_open_main, daemon=True).start()
                     return 1
 
                 # 4. 快捷键: Alt + Space (语音听写输入)
                 if alt_down and vk_code == VK_SPACE:
-                    _log(">>> Hotkey Alt+Space triggered! <<<")
+                    _log_info("HOOK", ">>> Hotkey Alt+Space triggered! <<<")
                     if self.on_voice_input:
                         threading.Thread(target=self.on_voice_input, daemon=True).start()
                     return 1
@@ -136,10 +128,10 @@ class GlobalKeyboardHook:
                     else:
                         self.space_count = 1
                     self.last_space_time = now
-                    _log(f"[HOOK] Space pressed! space_count={self.space_count}, delta={delta:.3f}s, max_inv={self.max_interval}")
+                    _log_info("HOOK", f"[HOOK] Space pressed! space_count={self.space_count}, delta={delta:.3f}s, max_inv={self.max_interval}")
 
                     if self.space_count >= 3:
-                        _log(">>> [HOOK] TRIPLE SPACE TRIGGERED! Calling replacer... <<<")
+                        _log_info("HOOK", ">>> [HOOK] TRIPLE SPACE TRIGGERED! Calling replacer... <<<")
                         self.space_count = 0
                         self.last_space_time = 0.0
                         if self.on_triple_space:
@@ -150,7 +142,7 @@ class GlobalKeyboardHook:
                     0xE5 # VK_PROCESSKEY
                 ):
                     if self.space_count > 0:
-                        _log(f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
+                        _log_info("HOOK", f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
                     self.space_count = 0
                     self.last_space_time = 0.0
 
@@ -165,9 +157,9 @@ class GlobalKeyboardHook:
             0
         )
         if not self.hook_id:
-            _log(f"SetWindowsHookExW failed with error: {kernel32.GetLastError()}")
+            _log_info("HOOK", f"SetWindowsHookExW failed with error: {kernel32.GetLastError()}")
             return
-        _log(f"Hook installed successfully: hook_id={self.hook_id}")
+        _log_info("HOOK", f"Hook installed successfully: hook_id={self.hook_id}")
 
         msg = wintypes.MSG()
         while self._running:
@@ -180,7 +172,7 @@ class GlobalKeyboardHook:
         if self.hook_id:
             user32.UnhookWindowsHookEx(self.hook_id)
             self.hook_id = None
-        _log("Hook loop finished")
+        _log_info("HOOK", "Hook loop finished")
 
     def start(self):
         if self._running:

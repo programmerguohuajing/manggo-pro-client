@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect
 from PySide6.QtGui import QFont, QColor, QScreen, QGuiApplication
 
+from ui import theme
+
 class FloatToast(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,32 +34,9 @@ class FloatToast(QWidget):
         self.hide_timer.timeout.connect(self.fade_out)
 
     def show_message(self, status: str, message: str, duration_ms: int = 1500):
-        # 区分状态颜色
-        if status == "translating":
-            bg_color = "rgba(40, 44, 52, 0.9)"
-            text_color = "#61afef"
-            icon = "⚡"
-        elif status == "success":
-            bg_color = "rgba(40, 52, 45, 0.9)"
-            text_color = "#98c379"
-            icon = "✓"
-        else:
-            bg_color = "rgba(52, 40, 40, 0.9)"
-            text_color = "#e06c75"
-            icon = "✕"
-
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {bg_color};
-                border-radius: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-            }}
-            QLabel {{
-                color: {text_color};
-                background: transparent;
-                border: none;
-            }}
-        """)
+        # 区分状态颜色与图标，配色见 ui/theme.py 的 toast_stylesheet
+        icon = {"translating": "⚡", "success": "✓"}.get(status, "✕")
+        self.setStyleSheet(theme.toast_stylesheet(status))
         self.label.setText(f"{icon} {message}")
         self.adjustSize()
 

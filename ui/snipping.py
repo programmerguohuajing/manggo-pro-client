@@ -7,6 +7,8 @@ from PySide6.QtCore import Qt, QRect, QPoint, Signal
 from PySide6.QtWidgets import QWidget, QApplication
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QCursor, QFont, QGuiApplication
 
+from ui import theme
+
 class SnippingWidget(QWidget):
     screenshot_captured = Signal(object)  # 发射 PIL Image
 
@@ -71,7 +73,7 @@ class SnippingWidget(QWidget):
                 painter.drawPixmap(select_rect, self.full_screen_pixmap, select_rect)
 
                 # 绘制边框
-                pen = QPen(QColor(46, 204, 113), 2, Qt.SolidLine)
+                pen = QPen(QColor(theme.SUCCESS), 2, Qt.SolidLine)
                 painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRect(select_rect)

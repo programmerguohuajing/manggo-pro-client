@@ -4,21 +4,16 @@
 """
 import time
 import re
-import os
 import threading
 import ctypes
 from ctypes import wintypes
 from typing import Callable, Optional
 import pyperclip
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log")
+from core.logging import info as _log_info
 
 def _log(msg: str):
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}.{int(time.time()*1000)%1000:03d}] [REPLACER] {msg}\n")
-    except Exception:
-        pass
+    _log_info("REPLACER", msg)
 
 # Windows 虚拟键码常量
 VK_BACK = 0x08

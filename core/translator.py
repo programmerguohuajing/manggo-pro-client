@@ -1,6 +1,7 @@
 """
 翻译引擎模块：支持内置免费通道与大模型 Pro 通道，支持中英双向互译与语言自动检测
 """
+from core.logging import error as _log_error
 import json
 import re
 import urllib.parse
@@ -123,7 +124,7 @@ class LLMTranslator(BaseTranslator):
                     out = out[1:-1].strip()
                 return out
         except Exception as e:
-            print(f"[LLM] Error: {e}")
+            _log_error("LLM", f"Error: {e}")
             return FreeTranslator().translate(clean_text, source_lang, target_lang)
 
 class TranslationManager:

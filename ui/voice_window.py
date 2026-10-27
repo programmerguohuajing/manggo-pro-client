@@ -10,6 +10,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from PySide6.QtGui import QFont, QColor, QPainter, QBrush, QPen
 import pyperclip
 
+from ui import theme
+
 # Windows 模拟按键
 VK_LWIN = 0x5B
 VK_H = 0x48
@@ -48,12 +50,12 @@ class VoiceInputWindow(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         self.card = QFrame(self)
-        self.card.setStyleSheet("""
-            QFrame {
-                background-color: #1F2937;
+        self.card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {theme.DARK_BG};
                 border-radius: 16px;
-                border: 1.5px solid #EA580C;
-            }
+                border: 1.5px solid {theme.ACCENT};
+            }}
         """)
         c_layout = QHBoxLayout(self.card)
         c_layout.setContentsMargins(18, 12, 18, 12)
@@ -68,29 +70,29 @@ class VoiceInputWindow(QWidget):
         v_info = QVBoxLayout()
         v_info.setSpacing(4)
         self.lbl_title = QLabel("语音输入就绪 (Alt+Space)", self.card)
-        self.lbl_title.setStyleSheet("color: #F9FAFB; font-weight: bold; font-size: 13px;")
+        self.lbl_title.setStyleSheet(f"color: {theme.SURFACE}; font-weight: bold; font-size: 13px;")
         v_info.addWidget(self.lbl_title)
 
         self.lbl_hint = QLabel("正在启动语音引擎，请对准麦克风说话...", self.card)
-        self.lbl_hint.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        self.lbl_hint.setStyleSheet(f"color: {theme.TEXT_FAINT}; font-size: 11px;")
         v_info.addWidget(self.lbl_hint)
         c_layout.addLayout(v_info, 1)
 
         # 关闭按钮
         btn_close = QPushButton("✕", self.card)
         btn_close.setFixedSize(26, 26)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: #374151;
-                color: #D1D5DB;
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: {theme.DARK_PANEL};
+                color: {theme.BORDER_STRONG};
                 border: none;
                 border-radius: 13px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #EF4444;
+            }}
+            QPushButton:hover {{
+                background: {theme.DANGER};
                 color: white;
-            }
+            }}
         """)
         btn_close.clicked.connect(self.hide)
         c_layout.addWidget(btn_close)

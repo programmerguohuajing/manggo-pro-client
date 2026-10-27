@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
 import pyperclip
 from core.tts import tts_player
+from ui import theme
+from ui.theme import SETTINGS_STYLESHEET
+from core.logging import error as _log_error
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
 
@@ -83,209 +86,7 @@ def save_config(cfg: dict):
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"[Config] Error saving config: {e}")
-
-SETTINGS_STYLESHEET = """
-QWidget#SettingsWindow {
-    background-color: #F8F9FB;
-    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-}
-
-/* 侧边导航栏 */
-QListWidget#NavList {
-    background-color: #FFFFFF;
-    border: none;
-    border-right: 1px solid #E5E7EB;
-    outline: none;
-    padding-top: 14px;
-}
-QListWidget#NavList::item {
-    height: 44px;
-    margin: 4px 10px;
-    padding-left: 14px;
-    border-radius: 8px;
-    color: #4B5563;
-    font-size: 13px;
-    font-weight: 500;
-}
-QListWidget#NavList::item:hover {
-    background-color: #FFF7ED;
-    color: #EA580C;
-}
-QListWidget#NavList::item:selected {
-    background-color: #FFEDD5;
-    color: #C2410C;
-    font-weight: bold;
-}
-
-/* 卡片容器 */
-QFrame.CardFrame {
-    background-color: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-radius: 12px;
-    padding: 16px 18px;
-}
-QFrame.CardFrame:hover {
-    border-color: #FDBA74;
-}
-
-/* 标题规范 */
-QLabel.SectionTitle {
-    font-size: 14px;
-    font-weight: bold;
-    color: #1F2937;
-}
-QLabel.SectionDesc {
-    font-size: 12px;
-    color: #6B7280;
-    line-height: 1.4;
-}
-QLabel.FieldLabel {
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-}
-
-/* 输入框与下拉框 */
-QLineEdit, QComboBox, QSpinBox, QTextEdit {
-    background-color: #FFFFFF;
-    border: 1px solid #D1D5DB;
-    border-radius: 6px;
-    padding: 7px 10px;
-    font-size: 12px;
-    color: #111827;
-    selection-background-color: #F97316;
-}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
-    border: 1.5px solid #EA580C;
-    background-color: #FFFAF5;
-}
-QComboBox::drop-down {
-    border: none;
-    width: 26px;
-}
-
-/* 下拉菜单弹出层 (彻底消除 Windows 黑色外边框，呈现现代化柔和浅边) */
-QComboBoxPrivateContainer {
-    border: none;
-    background-color: transparent;
-}
-QComboBox QAbstractItemView, QComboBox QListView {
-    background-color: #FFFFFF;
-    color: #111827;
-    border: 1px solid #E5E7EB;
-    border-radius: 8px;
-    padding: 4px;
-    outline: none;
-    selection-background-color: #FFEDD5;
-    selection-color: #C2410C;
-}
-QComboBox QAbstractItemView::item, QComboBox QListView::item {
-    min-height: 32px;
-    padding: 6px 12px;
-    color: #1F2937;
-    background-color: #FFFFFF;
-    border-radius: 6px;
-    font-size: 12px;
-    border: none;
-}
-QComboBox QAbstractItemView::item:hover, QComboBox QListView::item:hover {
-    background-color: #FFF7ED;
-    color: #EA580C;
-}
-QComboBox QAbstractItemView::item:selected, QComboBox QListView::item:selected {
-    background-color: #FFEDD5;
-    color: #C2410C;
-    font-weight: bold;
-}
-
-/* 按钮规范 */
-QPushButton.PrimaryBtn {
-    background-color: #EA580C;
-    color: #FFFFFF;
-    font-size: 13px;
-    font-weight: 600;
-    border: none;
-    border-radius: 7px;
-    padding: 8px 20px;
-}
-QPushButton.PrimaryBtn:hover {
-    background-color: #C2410C;
-}
-QPushButton.PrimaryBtn:pressed {
-    background-color: #9A3412;
-}
-
-QPushButton.SecondaryBtn {
-    background-color: #FFFFFF;
-    color: #374151;
-    font-size: 12px;
-    font-weight: 500;
-    border: 1px solid #D1D5DB;
-    border-radius: 6px;
-    padding: 6px 14px;
-}
-QPushButton.SecondaryBtn:hover {
-    background-color: #F3F4F6;
-    border-color: #9CA3AF;
-}
-
-QPushButton.TextBtn {
-    background: transparent;
-    color: #EA580C;
-    font-size: 12px;
-    font-weight: 500;
-    border: none;
-    padding: 4px 8px;
-}
-QPushButton.TextBtn:hover {
-    text-decoration: underline;
-}
-
-/* 复选框样式 */
-QCheckBox {
-    font-size: 13px;
-    color: #1F2937;
-    spacing: 8px;
-}
-QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 1px solid #D1D5DB;
-    background: #FFFFFF;
-}
-QCheckBox::indicator:hover {
-    border-color: #EA580C;
-}
-QCheckBox::indicator:checked {
-    background-color: #EA580C;
-    border-color: #EA580C;
-    image: none;
-}
-
-/* 滑块样式 */
-QSlider::groove:horizontal {
-    height: 6px;
-    background: #E5E7EB;
-    border-radius: 3px;
-}
-QSlider::sub-page:horizontal {
-    background: #EA580C;
-    border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    background: #FFFFFF;
-    border: 2px solid #EA580C;
-    width: 16px;
-    height: 16px;
-    margin: -5px 0;
-    border-radius: 8px;
-}
-QSlider::handle:horizontal:hover {
-    background: #FFEDD5;
-}
-"""
+        _log_error("CONFIG", f"Error saving config: {e}")
 
 class TranslationTestDialog(QDialog):
     """
@@ -310,7 +111,7 @@ class TranslationTestDialog(QDialog):
         header = QHBoxLayout()
         lbl_title = QLabel("🥭 Manggo 通道测试诊断", self)
         lbl_title.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        lbl_title.setStyleSheet("color: #EA580C;")
+        lbl_title.setStyleSheet(f"color: {theme.ACCENT};")
         header.addWidget(lbl_title)
 
         header.addStretch()
@@ -318,39 +119,39 @@ class TranslationTestDialog(QDialog):
         # 状态小胶囊
         lbl_badge = QLabel(f"● 连通正常 ({elapsed_ms}ms)" if is_success else "● 连接异常", self)
         if is_success:
-            lbl_badge.setStyleSheet("background: #DCFCE7; color: #15803D; font-weight: bold; padding: 4px 10px; border-radius: 12px; font-size: 11px;")
+            lbl_badge.setStyleSheet(theme.badge_stylesheet(True))
         else:
-            lbl_badge.setStyleSheet("background: #FEE2E2; color: #B91C1C; font-weight: bold; padding: 4px 10px; border-radius: 12px; font-size: 11px;")
+            lbl_badge.setStyleSheet(theme.badge_stylesheet(False))
         header.addWidget(lbl_badge)
         root.addLayout(header)
 
         # 通道模式与指标条
         metrics_bar = QFrame(self)
-        metrics_bar.setStyleSheet("background: #F3F4F6; border-radius: 8px; padding: 4px 12px;")
+        metrics_bar.setStyleSheet(f"background: {theme.SURFACE_GRAY}; border-radius: 8px; padding: 4px 12px;")
         m_layout = QHBoxLayout(metrics_bar)
         m_layout.setContentsMargins(8, 6, 8, 6)
 
         lbl_mode = QLabel(f"🌐 激活通道: {mode_name}", metrics_bar)
-        lbl_mode.setStyleSheet("color: #374151; font-size: 12px; font-weight: 500;")
+        lbl_mode.setStyleSheet(f"color: {theme.TEXT_SECONDARY}; font-size: 12px; font-weight: 500;")
         m_layout.addWidget(lbl_mode)
 
         m_layout.addStretch()
 
         lbl_speed = QLabel(f"⏱️ 耗时: {elapsed_ms} ms" if is_success else "❌ 请求失败", metrics_bar)
-        lbl_speed.setStyleSheet("color: #6B7280; font-size: 11px;")
+        lbl_speed.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
         m_layout.addWidget(lbl_speed)
         root.addWidget(metrics_bar)
 
         if is_success:
             # 2. 原文卡片
             card_src = QFrame(self)
-            card_src.setStyleSheet("background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 10px;")
+            card_src.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 10px;")
             cs_layout = QVBoxLayout(card_src)
             cs_layout.setSpacing(6)
 
             h_src_top = QHBoxLayout()
             lbl_src_tag = QLabel("🇨🇳 原文 (中文)", card_src)
-            lbl_src_tag.setStyleSheet("color: #4B5563; font-size: 11px; font-weight: bold;")
+            lbl_src_tag.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 11px; font-weight: bold;")
             h_src_top.addWidget(lbl_src_tag)
             h_src_top.addStretch()
 
@@ -369,19 +170,19 @@ class TranslationTestDialog(QDialog):
             txt_src.setPlainText(self.source_text)
             txt_src.setReadOnly(True)
             txt_src.setFixedHeight(65)
-            txt_src.setStyleSheet("background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 6px; padding: 6px; font-size: 12px; color: #1F2937;")
+            txt_src.setStyleSheet(f"background: {theme.SURFACE_MUTED}; border: 1px solid {theme.BORDER}; border-radius: 6px; padding: 6px; font-size: 12px; color: {theme.TEXT_PRIMARY};")
             cs_layout.addWidget(txt_src)
             root.addWidget(card_src)
 
             # 3. 译文卡片
             card_tgt = QFrame(self)
-            card_tgt.setStyleSheet("background: #FFFFFF; border: 1px solid #FDBA74; border-radius: 10px; padding: 10px;")
+            card_tgt.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.ACCENT_SOFT_BORDER}; border-radius: 10px; padding: 10px;")
             ct_layout = QVBoxLayout(card_tgt)
             ct_layout.setSpacing(6)
 
             h_tgt_top = QHBoxLayout()
             lbl_tgt_tag = QLabel("🇬🇧 译文 (English)", card_tgt)
-            lbl_tgt_tag.setStyleSheet("color: #EA580C; font-size: 11px; font-weight: bold;")
+            lbl_tgt_tag.setStyleSheet(f"color: {theme.ACCENT}; font-size: 11px; font-weight: bold;")
             h_tgt_top.addWidget(lbl_tgt_tag)
             h_tgt_top.addStretch()
 
@@ -400,36 +201,36 @@ class TranslationTestDialog(QDialog):
             txt_tgt.setPlainText(self.target_text)
             txt_tgt.setReadOnly(True)
             txt_tgt.setFixedHeight(75)
-            txt_tgt.setStyleSheet("background: #FFFAF5; border: 1.5px solid #EA580C; border-radius: 6px; padding: 6px; font-size: 13px; font-weight: 500; color: #111827;")
+            txt_tgt.setStyleSheet(f"background: {theme.ACCENT_BG}; border: 1.5px solid {theme.ACCENT}; border-radius: 6px; padding: 6px; font-size: 13px; font-weight: 500; color: {theme.TEXT};")
             ct_layout.addWidget(txt_tgt)
             root.addWidget(card_tgt)
         else:
             # 异常详情卡片
             card_err = QFrame(self)
-            card_err.setStyleSheet("background: #FFF5F5; border: 1.5px solid #FEB2B2; border-radius: 10px; padding: 12px;")
+            card_err.setStyleSheet(f"background: {theme.ERROR_BG_LIGHT}; border: 1.5px solid {theme.ERROR_BORDER}; border-radius: 10px; padding: 12px;")
             ce_layout = QVBoxLayout(card_err)
             ce_layout.setSpacing(8)
 
             lbl_err_title = QLabel("⚠️ 通道异常报错信息", card_err)
-            lbl_err_title.setStyleSheet("color: #C53030; font-weight: bold; font-size: 13px;")
+            lbl_err_title.setStyleSheet(f"color: {theme.ERROR_DARK}; font-weight: bold; font-size: 13px;")
             ce_layout.addWidget(lbl_err_title)
 
             txt_err = QTextEdit(card_err)
             txt_err.setPlainText(error_msg)
             txt_err.setReadOnly(True)
             txt_err.setFixedHeight(90)
-            txt_err.setStyleSheet("background: #FFFFFF; border: 1px solid #FEB2B2; border-radius: 6px; padding: 6px; font-size: 11px; color: #742A2A;")
+            txt_err.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.ERROR_BORDER}; border-radius: 6px; padding: 6px; font-size: 11px; color: {theme.ERROR_TEXT_DARK};")
             ce_layout.addWidget(txt_err)
 
             lbl_err_hint = QLabel("💡 排查建议：\n1. 若为大模型 Pro 通道，请确认 API Key 是否有效且账户有余额；\n2. 检查 Base URL 是否正确（官方 OpenAI/DeepSeek 需包含 /v1）；\n3. 确认网络连接或代理设置正常。", card_err)
-            lbl_err_hint.setStyleSheet("color: #9B2C2C; font-size: 11px; line-height: 1.4;")
+            lbl_err_hint.setStyleSheet(f"color: {theme.ERROR_HINT_DARK}; font-size: 11px; line-height: 1.4;")
             ce_layout.addWidget(lbl_err_hint)
             root.addWidget(card_err)
 
         # 4. 底部操作栏
         footer = QHBoxLayout()
         lbl_foot_info = QLabel("通道就绪后，可在任意界面随时使用 3 次空格就地转译或 Alt+D 划词翻译。" if is_success else "请修改参数后再次测试。", self)
-        lbl_foot_info.setStyleSheet("color: #6B7280; font-size: 11px;")
+        lbl_foot_info.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
         footer.addWidget(lbl_foot_info)
 
         footer.addStretch()
@@ -489,17 +290,17 @@ class SettingsWindow(QWidget):
         # 1. 顶部 Header 栏
         header = QFrame(self)
         header.setFixedHeight(64)
-        header.setStyleSheet("background-color: #FFFFFF; border-bottom: 1px solid #E5E7EB;")
+        header.setStyleSheet(f"background-color: {theme.SURFACE}; border-bottom: 1px solid {theme.BORDER};")
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(20, 0, 20, 0)
 
         lbl_logo = QLabel("🥭 Manggo Pro", header)
         lbl_logo.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
-        lbl_logo.setStyleSheet("color: #EA580C;")
+        lbl_logo.setStyleSheet(f"color: {theme.ACCENT};")
         h_layout.addWidget(lbl_logo)
 
         lbl_sub = QLabel("偏好设置与通道配置", header)
-        lbl_sub.setStyleSheet("color: #6B7280; font-size: 13px; margin-left: 8px;")
+        lbl_sub.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px; margin-left: 8px;")
         h_layout.addWidget(lbl_sub)
 
         h_layout.addStretch()
@@ -549,12 +350,12 @@ class SettingsWindow(QWidget):
         # 3. 底部操作栏
         footer = QFrame(self)
         footer.setFixedHeight(62)
-        footer.setStyleSheet("background-color: #FFFFFF; border-top: 1px solid #E5E7EB;")
+        footer.setStyleSheet(f"background-color: {theme.SURFACE}; border-top: 1px solid {theme.BORDER};")
         f_layout = QHBoxLayout(footer)
         f_layout.setContentsMargins(20, 0, 20, 0)
 
         self.lbl_status = QLabel("", footer)
-        self.lbl_status.setStyleSheet("color: #059669; font-size: 12px; font-weight: 500;")
+        self.lbl_status.setStyleSheet(f"color: {theme.SUCCESS_DARK}; font-size: 12px; font-weight: 500;")
         f_layout.addWidget(self.lbl_status)
 
         f_layout.addStretch()
@@ -598,7 +399,7 @@ class SettingsWindow(QWidget):
 
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #F3F4F6;")
+        line.setStyleSheet(f"color: {theme.SURFACE_GRAY};")
         c_layout.addWidget(line)
 
         # 灵敏度时间调节
@@ -626,7 +427,7 @@ class SettingsWindow(QWidget):
         c_layout.addLayout(h_slider)
 
         lbl_tip = QLabel("推荐值：500 ~ 650 ms。如打字节奏较慢可适当调大，如常误触可适当调小。")
-        lbl_tip.setStyleSheet("font-size: 11px; color: #9CA3AF;")
+        lbl_tip.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_FAINT};")
         c_layout.addWidget(lbl_tip)
 
         l.addWidget(card)
@@ -634,14 +435,14 @@ class SettingsWindow(QWidget):
         # 机制提示卡片
         tip_card = QFrame()
         tip_card.setProperty("class", "CardFrame")
-        tip_card.setStyleSheet("background-color: #FFFBEB; border-color: #FDE68A;")
+        tip_card.setStyleSheet(f"background-color: {theme.WARNING_BG}; border-color: {theme.WARNING_BORDER};")
         t_l = QVBoxLayout(tip_card)
         lbl_tip_title = QLabel("💡 贴心使用提示")
-        lbl_tip_title.setStyleSheet("font-weight: bold; color: #92400E; font-size: 13px;")
+        lbl_tip_title.setStyleSheet(f"font-weight: bold; color: {theme.WARNING_TITLE}; font-size: 13px;")
         t_l.addWidget(lbl_tip_title)
 
         lbl_tip_content = QLabel("1. 支持两种触发模式：已手动划选文本时，连按 3 次空格直接转译选中文本；光标在行尾时，自动捕捉并替换光标前的中文片段。\n2. 转译过程中右下角伴有呼吸气泡通知，不抢占当前焦点，不打断您的打字心流。")
-        lbl_tip_content.setStyleSheet("color: #B45309; font-size: 12px; line-height: 1.5;")
+        lbl_tip_content.setStyleSheet(f"color: {theme.WARNING_TEXT}; font-size: 12px; line-height: 1.5;")
         lbl_tip_content.setWordWrap(True)
         t_l.addWidget(lbl_tip_content)
 
@@ -787,7 +588,7 @@ class SettingsWindow(QWidget):
 
         for key, name, desc in hotkeys:
             row = QFrame()
-            row.setStyleSheet("background-color: #F9FAFB; border: 1px solid #F3F4F6; border-radius: 8px; padding: 10px 12px;")
+            row.setStyleSheet(f"background-color: {theme.SURFACE_MUTED}; border: 1px solid {theme.SURFACE_GRAY}; border-radius: 8px; padding: 10px 12px;")
             r_l = QVBoxLayout(row)
             r_l.setContentsMargins(10, 8, 10, 8)
             r_l.setSpacing(6)
@@ -795,19 +596,19 @@ class SettingsWindow(QWidget):
             # 顶部行：功能名称 + 快捷键徽章
             h_top = QHBoxLayout()
             lbl_name = QLabel(name)
-            lbl_name.setStyleSheet("font-weight: bold; color: #1F2937; font-size: 13px;")
+            lbl_name.setStyleSheet(f"font-weight: bold; color: {theme.TEXT_PRIMARY}; font-size: 13px;")
             h_top.addWidget(lbl_name)
 
             h_top.addStretch()
 
             lbl_badge = QLabel(key)
-            lbl_badge.setStyleSheet("background: #FFF7ED; color: #EA580C; border: 1px solid #FDBA74; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: Consolas, 'Segoe UI', monospace;")
+            lbl_badge.setStyleSheet(f"background: {theme.ACCENT_SOFT_BG}; color: {theme.ACCENT}; border: 1px solid {theme.ACCENT_SOFT_BORDER}; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: {theme.FONT_MONO};")
             h_top.addWidget(lbl_badge)
             r_l.addLayout(h_top)
 
             # 次行：完整说明文本（开启自适应折行，彻底杜绝文字截断）
             lbl_d = QLabel(desc)
-            lbl_d.setStyleSheet("color: #6B7280; font-size: 12px; line-height: 1.4;")
+            lbl_d.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px; line-height: 1.4;")
             lbl_d.setWordWrap(True)
             r_l.addWidget(lbl_d)
 
@@ -833,16 +634,16 @@ class SettingsWindow(QWidget):
 
         lbl_app_name = QLabel("🥭 Manggo Pro Client 桌面客户端")
         lbl_app_name.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        lbl_app_name.setStyleSheet("color: #EA580C;")
+        lbl_app_name.setStyleSheet(f"color: {theme.ACCENT};")
         c_l.addWidget(lbl_app_name)
 
         lbl_ver = QLabel("版本号: v2.0 Pro Edition | 纯本地运行 | 免外部侵入")
-        lbl_ver.setStyleSheet("color: #4B5563; font-size: 12px;")
+        lbl_ver.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 12px;")
         c_l.addWidget(lbl_ver)
 
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #E5E7EB;")
+        line.setStyleSheet(f"color: {theme.BORDER};")
         c_l.addWidget(line)
 
         # 状态指示
@@ -854,9 +655,9 @@ class SettingsWindow(QWidget):
         ]
         for title, val in status_items:
             h = QHBoxLayout()
-            h.addWidget(QLabel(title, styleSheet="color: #374151; font-weight: 500; font-size: 12px;"))
+            h.addWidget(QLabel(title, styleSheet=f"color: {theme.TEXT_SECONDARY}; font-weight: 500; font-size: 12px;"))
             h.addStretch()
-            h.addWidget(QLabel(val, styleSheet="color: #059669; font-weight: bold; font-size: 12px;"))
+            h.addWidget(QLabel(val, styleSheet=f"color: {theme.SUCCESS_DARK}; font-weight: bold; font-size: 12px;"))
             c_l.addLayout(h)
 
         l.addWidget(card)

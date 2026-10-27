@@ -11,11 +11,14 @@ import pyperclip
 
 from core.database import db
 
+from ui import theme
+
 class HistoryWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Manggo 历史记录 & 生词本")
         self.resize(720, 480)
+        self.setStyleSheet(theme.WINDOW_STYLESHEET)
 
         self._init_ui()
         self.refresh_data()
@@ -57,7 +60,7 @@ class HistoryWindow(QWidget):
         layout.addWidget(self.table)
 
         lbl_tip = QLabel("💡 提示：双击单元格可快速复制该项内容。点击星标可直接将条目加入/移出生词本。", self)
-        lbl_tip.setStyleSheet("color: #7f8c8d; font-size: 11px;")
+        lbl_tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
         layout.addWidget(lbl_tip)
 
     def refresh_data(self):
