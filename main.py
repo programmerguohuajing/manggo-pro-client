@@ -323,23 +323,55 @@ def main():
 
     check_admin_elevation()
 
-    # 智能单实例管理：Windows 用互斥体 + 终结旧进程；其他平台用 PID 存活检查。
+    # 单实例管理：Windows 用互斥体 + 终结旧进程；其他平台用 PID 存活检查。
+    # 接管失败时绝不能静默跑第二个实例——这是 2026-10-27 一串怪象的根源：
+    # 旧实例以管理员身份跑着时，非管理员的新实例 OpenProcess 会因
+    # 权限不足打不开它，旧代码直接跳过、照常启动，于是托盘里出现两个
+    # 一模一样的图标、钩子打架；用户在其中一个上点“退出应用”，
+    # 另一个还活着，看起来就是“退出杀不死进程”，安装器也永远关不掉它。
     if IS_WINDOWS:
         mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
         if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+            old_pid = None
             if os.path.exists(PID_FILE):
                 try:
                     with open(PID_FILE, "r") as f:
                         old_pid = int(f.read().strip())
-                    if old_pid != os.getpid():
-                        h_proc = kernel32.OpenProcess(0x0001, False, old_pid)
-                        if h_proc:
-                            kernel32.TerminateProcess(h_proc, 0)
-                            kernel32.CloseHandle(h_proc)
-                            time.sleep(0.2)
                 except Exception:
                     pass
-            # 重新创建互斥体
+            took_over = False
+            if old_pid is not None and old_pid != os.getpid():
+                try:
+                    # SYNCHRONIZE | PROCESS_TERMINATE：既能杀，也能等它真死。
+                    h_proc = kernel32.OpenProcess(0x00100000 | 0x0001, False, old_pid)
+                    if h_proc:
+                        if kernel32.TerminateProcess(h_proc, 0):
+                            took_over = (kernel32.WaitForSingleObject(h_proc, 2000) == 0)
+                        kernel32.CloseHandle(h_proc)
+                    else:
+                        _log_info("APP", f"takeover: cannot open old pid {old_pid} (likely admin instance)")
+                except Exception as e:
+                    _log_info("APP", f"takeover: failed for old pid {old_pid} ({e})")
+            if not took_over:
+                # 旧实例还活着且接管不了：直接退出并明说，不跑重复实例。
+                # 这里还没有 QApplication，用原生消息框，不依赖 Qt。
+                _log_info("APP", f"takeover: old instance still alive (pid={old_pid}), refusing duplicate")
+                try:
+                    ctypes.windll.user32.MessageBoxW(
+                        None,
+                        "Manggo Pro Client 已在运行（可能以管理员身份运行）。\n\n"
+                        "当前启动无法接管旧实例，已退出，不会再起第二个。\n"
+                        "请先右键托盘图标 → 退出应用，或在任务管理器中结束旧进程；\n"
+                        "也可以右键以管理员身份运行来接管它。",
+                        "Manggo Pro Client",
+                        0x30,  # MB_ICONWARNING
+                    )
+                except Exception:
+                    pass
+                if mutex:
+                    win32api.CloseHandle(mutex)
+                return
+            # 接管成功：重新创建互斥体
             if mutex:
                 win32api.CloseHandle(mutex)
             mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
