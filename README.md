@@ -55,4 +55,7 @@ pip install -r requirements.txt
 ### 日志与诊断
 
 - 托盘菜单 → 诊断控制台：可按级别过滤、复制、清空日志（不自动弹窗）
-- 程序目录旁的 `debug_app.log`：同样可直接打开查看
+- 程序目录旁的 `debug_app.log`：同样可直接打开查看（系统安装器装到
+  Program Files / /Applications / /usr/share 后，日志、配置、历史
+  在用户目录：Windows 是 `%APPDATA%\ManggoProClient`，
+  mac/Linux 是 `~/.config/manggo-pro-client`）

@@ -50,7 +50,9 @@ kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
 if IS_WINDOWS:
     user32.GetClipboardSequenceNumber.restype = ctypes.c_ulong
 
-PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app.pid")
+from core.paths import data_file as _data_file
+
+PID_FILE = _data_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app.pid"))
 
 def force_activate_window(win):
     """确保指定窗口在 Windows 上从后台、最小化或遮挡状态强制置顶并获得焦点"""

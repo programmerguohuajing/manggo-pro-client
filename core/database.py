@@ -7,7 +7,9 @@ import sqlite3
 import datetime
 from typing import List, Dict, Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "history.sqlite3")
+from core.paths import data_file as _data_file
+
+DB_PATH = _data_file(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "history.sqlite3"))
 
 class HistoryDB:
     def __init__(self, db_path: str = DB_PATH):

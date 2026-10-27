@@ -29,7 +29,9 @@ from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
 from core.logging import error as _log_error
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+from core.paths import data_file as _data_file
+
+CONFIG_FILE = _data_file(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json"))
 
 DEFAULT_CONFIG = {
     "engine": "free",  # "free" 或 "llm"

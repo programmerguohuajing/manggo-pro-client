@@ -22,7 +22,9 @@ import time
 from collections import deque
 from typing import List, Dict
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log")
+from core.paths import data_file as _data_file
+
+LOG_FILE = _data_file(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log"))
 
 LEVELS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
 MAX_BUFFER = 1000

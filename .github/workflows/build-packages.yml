@@ -1,8 +1,10 @@
 name: Build packages
 
 # 触发：推到 build/packages 分支即构建；也可手动 Run workflow。
-# 产物是便携包（不是系统安装器）：Windows zip、macOS .app zip、Linux tar.gz，
-# 详见 packaging/README.md。macOS 产物未签名，首次打开需右键 -> 打开。
+# 每平台出两份产物：便携包 + 系统安装器（Windows Inno Setup 安装器、
+# macOS DMG、Linux deb），详见 packaging/README.md。
+# macOS 产物未签名，首次打开需右键 -> 打开。
+# 版本号唯一来源：packaging/VERSION，安装器文件名和元数据都读它。
 on:
   push:
     branches: [build/packages]
@@ -37,6 +39,19 @@ jobs:
         with:
           name: ManggoProClient-Windows-x64
           path: ManggoProClient-Windows-x64.zip
+          retention-days: 30
+      # 安装器：Inno Setup 6（windows-latest 自带 iscc，取不到时走默认安装路径）。
+      - name: Build installer (Inno Setup)
+        run: |
+          $version = (Get-Content packaging/VERSION -Raw).Trim()
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc packaging/installer.iss /DAppVersion=$version /DSourceDir=dist\ManggoProClient /Oinstaller-out
+          Get-ChildItem installer-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ManggoProClient-Windows-x64-Setup
+          path: installer-out/ManggoProClient-Setup.exe
           retention-days: 30
 
   macos-intel:
@@ -79,6 +94,19 @@ jobs:
           name: ManggoProClient-macOS-Intel
           path: ManggoProClient-macOS-Intel.zip
           retention-days: 30
+      # 安装器：DMG（拖到 Applications 即安装；未签名，首次打开需右键）。
+      - name: Build installer (DMG)
+        run: |
+          rm -rf dmg-staging && mkdir dmg-staging
+          ditto dist/ManggoProClient.app dmg-staging/ManggoProClient.app
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "Manggo Pro Client" -srcfolder dmg-staging -ov -format UDZO ManggoProClient-macOS-Intel.dmg
+          ls -lh ManggoProClient-macOS-Intel.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ManggoProClient-macOS-Intel-DMG
+          path: ManggoProClient-macOS-Intel.dmg
+          retention-days: 30
 
   macos-arm:
     name: macOS Apple Silicon (arm64)
@@ -120,6 +148,19 @@ jobs:
           name: ManggoProClient-macOS-AppleSilicon
           path: ManggoProClient-macOS-AppleSilicon.zip
           retention-days: 30
+      # 安装器：DMG（拖到 Applications 即安装；未签名，首次打开需右键）。
+      - name: Build installer (DMG)
+        run: |
+          rm -rf dmg-staging && mkdir dmg-staging
+          ditto dist/ManggoProClient.app dmg-staging/ManggoProClient.app
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "Manggo Pro Client" -srcfolder dmg-staging -ov -format UDZO ManggoProClient-macOS-AppleSilicon.dmg
+          ls -lh ManggoProClient-macOS-AppleSilicon.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ManggoProClient-macOS-AppleSilicon-DMG
+          path: ManggoProClient-macOS-AppleSilicon.dmg
+          retention-days: 30
 
   linux:
     name: Linux x64
@@ -155,4 +196,15 @@ jobs:
         with:
           name: ManggoProClient-Linux-x64
           path: ManggoProClient-Linux-x64.tar.gz
+          retention-days: 30
+      # 安装器：deb（装到 /usr/share，菜单图标 + /usr/bin 启动命令）。
+      - name: Build installer (deb)
+        run: |
+          VERSION=$(cat packaging/VERSION | tr -d ' \n\r')
+          python3 packaging/make-deb.py --version "$VERSION" --dist dist/ManggoProClient --out "manggo-pro-client_${VERSION}_amd64.deb"
+          dpkg-deb --info "manggo-pro-client_${VERSION}_amd64.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ManggoProClient-Linux-x64-Deb
+          path: manggo-pro-client_*_amd64.deb
           retention-days: 30

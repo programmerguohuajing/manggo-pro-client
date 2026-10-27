@@ -25,15 +25,40 @@ macOS 是两个独立包，不是 universal2 合并包：
 - `ManggoProClient-macOS-Intel.zip`：Intel 处理器（x86_64，macos-15-intel 构建）
 - `ManggoProClient-macOS-AppleSilicon.zip`：Apple Silicon（arm64，macos-latest 构建）
 
-## 产物形态（v1）
+## 产物形态：便携包 + 系统安装器
 
-这是便携包，不是系统安装器：解压即用，不写注册表 / 不进 Applications
-自动安装。Windows 是 `ManggoProClient.exe` 所在文件夹的 zip，
-macOS 是 `ManggoProClient.app` 的 zip，Linux 是文件夹的 tar.gz。
-如需真正的安装器（Windows Inno Setup、macOS DMG、Linux deb），下一步再加。
+每次构建每平台出两份产物，便携包和安装器装的是同一份程序：
 
-macOS 产物未签名（仓库里没有 Apple Developer 证书）：首次打开请右键
-`.app` -> 打开，点“打开”放行一次；之后正常双击即可。
+| 平台 | 便携包 | 安装器 |
+| --- | --- | --- |
+| Windows x64 | `ManggoProClient-Windows-x64.zip` | `ManggoProClient-Setup.exe`（Inno Setup） |
+| macOS Intel | `ManggoProClient-macOS-Intel.zip` | `ManggoProClient-macOS-Intel.dmg` |
+| macOS Apple Silicon | `ManggoProClient-macOS-AppleSilicon.zip` | `ManggoProClient-macOS-AppleSilicon.dmg` |
+| Linux x64 | `ManggoProClient-Linux-x64.tar.gz` | `manggo-pro-client_<版本>_amd64.deb` |
+
+安装方式与卸载：
+
+- Windows：双击 Setup，下一步装到 Program Files，开始菜单 + 桌面
+  快捷方式，控制面板 -> 程序和功能可卸载。需要管理员权限。
+- macOS：打开 DMG，把 `ManggoProClient.app` 拖到 Applications 即装好，
+  删掉 .app 即卸载。未签名（仓库里没有 Apple Developer 证书），
+  首次打开请右键 .app -> 打开，点“打开”放行一次；之后正常双击即可。
+- Linux：`sudo dpkg -i manggo-pro-client_<版本>_amd64.deb`（依赖
+  libgl1、libegl1、libxkbcommon0、libdbus-1-3、libfontconfig1），
+  装到 `/usr/share/manggo-pro-client`，应用程序菜单有图标，
+  `sudo apt remove manggo-pro-client` 可卸载。
+
+版本号唯一来源是 `packaging/VERSION`（当前 1.0.0），安装器文件名和
+元数据都读它；发版时改这一个文件就行。
+
+## 数据文件放在哪（系统安装后）
+
+历史记录、配置、日志、单实例 pid 默认写程序目录旁（便携包行为不变）。
+装到系统目录（Program Files、/Applications、/usr/share）后普通用户
+写不进安装目录时，`core/paths.py` 会自动把它们落到用户目录：
+Windows 是 `%APPDATA%\ManggoProClient`，mac/Linux 是
+`~/.config/manggo-pro-client`；如果程序旁已有同名文件而用户目录
+还没有，首次会顺手拷一份过去，便携包换系统安装时历史和配置不丢。
 
 ## 本地构建
 
