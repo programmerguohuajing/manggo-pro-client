@@ -82,6 +82,7 @@ class INPUT(ctypes.Structure):
 user32 = ctypes.windll.user32
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
+user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 
 def _send_key(vk: int, is_up: bool = False):
     """
@@ -150,21 +151,18 @@ def _send_ctrl_shift_home():
     _send_key(VK_CONTROL, is_up=True)
     time.sleep(0.06)
 
-def _safe_paste(timeout: float = 0.35, ignore_val: str = "") -> str:
+def _wait_for_clipboard_change(old_seq: int, timeout: float = 0.35) -> str:
     start = time.time()
     while time.time() - start < timeout:
-        try:
-            val = pyperclip.paste()
-            if val and val != ignore_val:
-                return val
-        except Exception:
-            pass
-        time.sleep(0.025)
-    try:
-        val = pyperclip.paste()
-        return val if val != ignore_val else ""
-    except Exception:
-        return ""
+        if user32.GetClipboardSequenceNumber() != old_seq:
+            try:
+                val = pyperclip.paste()
+                if val:
+                    return val
+            except Exception:
+                pass
+        time.sleep(0.02)
+    return ""
 
 def _safe_copy(text: str, retries: int = 3):
     for _ in range(retries):
@@ -207,18 +205,12 @@ class InPlaceReplacer:
             user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
             _log(f"Triggered! Foreground: '{title_buf.value}' (class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value})")
 
-            # 1. 微延时确保前台焦点应用完全接收并落入第 3 个空格，并强制释放可能的修饰键
+            # 1. 微延时确保前台焦点应用完全接收按键，并强制释放可能的修饰键
             time.sleep(0.04)
             _send_key(VK_MENU, is_up=True)
             _send_key(VK_CONTROL, is_up=True)
             _send_key(VK_SHIFT, is_up=True)
             time.sleep(0.02)
-
-            # 2. 消除刚刚输入的 3 个空格
-            _press_key(VK_BACK, times=3, delay=0.025)
-            # 留出时延让 Chromium/Electron/ProseMirror DOM 树重新排版
-            time.sleep(0.06)
-            _log("Sent 3 Backspaces to clear spaces")
 
             # 备份用户剪贴板
             original_clipboard = ""
@@ -227,28 +219,25 @@ class InPlaceReplacer:
             except Exception:
                 pass
 
-            # 准备文本捕获标记
-            token = f"__MANGGO_CAP_{time.time()}__"
-            _safe_copy(token)
-            time.sleep(0.02)
-
             # 策略一：首先尝试行内向前选区 (Shift + Home)
+            # 注：不预先盲目发送退格键，因为 Shift+Home 会同时选中末尾的空格，
+            # 翻译后的 Ctrl+V 会整段一次性替换包含空格的选区，彻底避免退格误删中文字符！
+            old_seq = user32.GetClipboardSequenceNumber()
             _send_shift_home()
-            time.sleep(0.08)  # 留出充足时间让 Blink/Electron Selection 状态跨进程同步
+            time.sleep(0.05)
             _send_ctrl_c()
-            time.sleep(0.08)
 
-            captured = _safe_paste(timeout=0.45, ignore_val=token)
+            captured = _wait_for_clipboard_change(old_seq, timeout=0.35)
             _log(f"Strategy 1 (Shift+Home) captured: {repr(captured)}")
 
-            # 策略二：如果 Shift + Home 没有提取到中文（例如 Claude 多行富文本容器），
+            # 策略二：如果 Shift + Home 没有提取到中文（例如多行富文本容器），
             # 尝试 Ctrl + Shift + Home 向前全选当前输入框草稿
             if not captured or not self.contains_chinese(captured):
+                old_seq = user32.GetClipboardSequenceNumber()
                 _send_ctrl_shift_home()
-                time.sleep(0.08)
+                time.sleep(0.05)
                 _send_ctrl_c()
-                time.sleep(0.08)
-                captured_para = _safe_paste(timeout=0.45, ignore_val=token)
+                captured_para = _wait_for_clipboard_change(old_seq, timeout=0.35)
                 _log(f"Strategy 2 (Ctrl+Shift+Home) captured: {repr(captured_para)}")
                 if captured_para and self.contains_chinese(captured_para) and len(captured_para) < 2000:
                     captured = captured_para
@@ -256,7 +245,7 @@ class InPlaceReplacer:
             clean_text = captured.strip() if captured else ""
             _log(f"Final clean_text: {repr(clean_text)}, has_chinese={self.contains_chinese(clean_text)}")
 
-            # 3. 校验是否需要翻译
+            # 2. 校验是否需要翻译
             if not clean_text or not self.contains_chinese(clean_text):
                 # 未选中或不含中文，取消选中状态（按下扩展键 Right 将光标移回末尾）
                 _press_key(VK_RIGHT)
@@ -272,7 +261,7 @@ class InPlaceReplacer:
             if self.notify_callback:
                 self.notify_callback("translating", f"正在转译: {clean_text[:15]}...")
 
-            # 4. 调用翻译
+            # 3. 调用翻译
             _log(f"Translating text: {repr(clean_text)}")
             translated_en = self.translate_func(clean_text)
             _log(f"Translated result: {repr(translated_en)}")
@@ -285,9 +274,9 @@ class InPlaceReplacer:
                     self.notify_callback("failed", "转译未得到有效结果")
                 return
 
-            # 5. 将英文写入剪贴板并通过就地粘贴替换已选中文本
+            # 4. 将英文写入剪贴板并通过就地粘贴替换已选中文本（同时覆盖原中文及末尾空格）
             _safe_copy(translated_en)
-            time.sleep(0.05)
+            time.sleep(0.04)
             _send_ctrl_v()
             _log("Sent Ctrl+V to paste English translation")
 

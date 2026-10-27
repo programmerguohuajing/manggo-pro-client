@@ -23,8 +23,8 @@ import win32api
 import winerror
 
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _safe_paste, VK_MENU
-from core.hook import GlobalKeyboardHook
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, VK_MENU, VK_CONTROL
+from core.hook import GlobalKeyboardHook, _log
 from core.ocr import ocr_engine
 from core.database import db
 
@@ -37,6 +37,9 @@ from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
 from ui.tray import TrayManager
 
+user32 = ctypes.windll.user32
+user32.GetClipboardSequenceNumber.restype = ctypes.c_ulong
+
 def force_activate_window(win):
     """确保指定窗口在 Windows 上从后台、最小化或遮挡状态强制置顶并获得焦点"""
     if not win:
@@ -47,8 +50,8 @@ def force_activate_window(win):
     win.activateWindow()
     try:
         hwnd = int(win.winId())
-        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
     except Exception:
         pass
 
@@ -137,38 +140,47 @@ class AppCoordinator(QObject):
 
     def _on_snipping_requested(self):
         _send_key(VK_MENU, is_up=True)
-        time.sleep(0.04)
         self.snipping_widget.start_snipping()
 
     def _notify_bridge(self, status: str, message: str):
         self.notify_signal.emit(status, message)
 
     def _on_hotkey_selection(self):
-        # 划词翻译：首先强制将 Alt/Ctrl 物理修饰键置为抬起状态，防止发送的 Ctrl+C 被操作系统或 Claude 识别为 Alt+Ctrl+C
+        # 划词翻译：强制释放 Alt/Ctrl 物理修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
+        time.sleep(0.04)
         _send_key(VK_MENU, is_up=True)
-        time.sleep(0.06)
+        _send_key(VK_CONTROL, is_up=True)
+        time.sleep(0.03)
 
-        original_clip = ""
-        try:
-            original_clip = pyperclip.paste()
-        except Exception:
-            pass
-
-        sentinel = f"__MANGGO_SEL_{time.time()}__"
-        _safe_copy(sentinel)
-        time.sleep(0.02)
+        old_seq = user32.GetClipboardSequenceNumber()
         _send_ctrl_c()
-        time.sleep(0.08)
 
-        captured = _safe_paste(timeout=0.45, ignore_val=sentinel)
-        if captured and captured != sentinel:
-            self.selection_translate_signal.emit(captured.strip())
+        captured = ""
+        start = time.time()
+        while time.time() - start < 0.4:
+            if user32.GetClipboardSequenceNumber() != old_seq:
+                try:
+                    captured = pyperclip.paste().strip()
+                except Exception:
+                    pass
+                break
+            time.sleep(0.02)
+
+        # 兜底读取当前剪贴板
+        if not captured:
+            try:
+                curr = pyperclip.paste().strip()
+                if curr:
+                    captured = curr
+            except Exception:
+                pass
+
+        if captured:
+            _log(f"[SELECTION] Captured: {repr(captured[:30])}")
+            self.selection_translate_signal.emit(captured)
         else:
+            _log("[SELECTION] Failed: No selection text captured")
             self.notify_signal.emit("failed", "未检测到鼠标选中文本")
-
-        # 延迟恢复剪贴板
-        time.sleep(0.5)
-        _safe_copy(original_clip)
 
     @Slot(str)
     def _do_selection_translate(self, text: str):
