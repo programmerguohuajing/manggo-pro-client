@@ -37,10 +37,8 @@ VK_SHIFT = 0x10
 VK_CONTROL = 0x11
 VK_MENU = 0x12  # Alt
 
-VK_Q = 0x51     # Q (划词翻译)
-VK_D = 0x44     # D (划词翻译 - 原版键位)
-VK_W = 0x57     # W (截图 OCR 翻译)
-VK_X = 0x58     # X (截图 OCR 翻译 - 原版键位)
+VK_Q = 0x51     # Q (划词翻译，绝不占用 Alt+D)
+VK_W = 0x57     # W (截图 OCR 翻译，绝不占用 Alt+X)
 VK_M = 0x4D     # M (呼出主工作台)
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -102,16 +100,16 @@ class GlobalKeyboardHook:
                 # 全量记录键盘击键日志便于诊断
                 _log(f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
 
-                # 1. 快捷键: 划词翻译 (同时支持 Alt+Q 与 Alt+D)
-                if alt_down and (vk_code == VK_Q or vk_code == VK_D):
-                    _log(f">>> Hotkey Selection Translate (vk={vk_code:#x}) triggered! <<<")
+                # 1. 快捷键: 划词翻译 (严格仅使用 Alt+Q，绝不占用 Alt+D)
+                if alt_down and vk_code == VK_Q:
+                    _log(">>> Hotkey Selection Translate (Alt+Q) triggered! <<<")
                     if self.on_selection_translate:
                         threading.Thread(target=self.on_selection_translate, daemon=True).start()
                     return 1
 
-                # 2. 快捷键: 截图 OCR 翻译 (同时支持 Alt+W 与 Alt+X)
-                if alt_down and (vk_code == VK_W or vk_code == VK_X):
-                    _log(f">>> Hotkey Screenshot OCR (vk={vk_code:#x}) triggered! <<<")
+                # 2. 快捷键: 截图 OCR 翻译 (严格仅使用 Alt+W，绝不占用 Alt+X)
+                if alt_down and vk_code == VK_W:
+                    _log(">>> Hotkey Screenshot OCR (Alt+W) triggered! <<<")
                     if self.on_screenshot_translate:
                         threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
                     return 1

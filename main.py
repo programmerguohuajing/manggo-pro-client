@@ -2,8 +2,8 @@
 Manggo Pro Client - 全功能桌面客户端入口 (100% 对标并升级原版 Manggo 全特性)
 功能矩阵：
 1. 连续 3 次空格输入框就地转译 (Manggo Pro 核心特性)
-2. 划词悬浮卡片翻译 (Alt+D / Alt+Q)
-3. 截图 OCR 离线文字提取与对照翻译 (Alt+X / Alt+W)
+2. 划词悬浮卡片翻译 (Alt+Q - 严格放行 Alt+D)
+3. 截图 OCR 离线文字提取与对照翻译 (Alt+W - 严格放行 Alt+X)
 4. 语音听写输入 / 实时语音转文字 (Alt+Space)
 5. 沉浸式双栏桌面翻译工作台 (Alt+Shift+D)
 6. 离线语音合成朗读 (SAPI TTS)
