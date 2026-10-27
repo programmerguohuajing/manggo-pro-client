@@ -72,7 +72,10 @@ def fetch_latest(timeout=15):
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            raise UpdateError("还没有发布任何正式版本（仓库暂无 Release）")
+            # 匿名请求下 404 有两种可能：确实没有 Release，或者仓库
+            # 是私有的（GitHub 对匿名用户隐藏私有仓库，一律返回 404）。
+            # 两者在匿名 API 里无法区分，所以文案不把话说死。
+            raise UpdateError("无法读取公开的 Release 信息（可能暂无 Release，或仓库未公开）")
         if e.code == 403:
             raise UpdateError("GitHub API 调用受限（匿名限额），请稍后再试")
         raise UpdateError(f"GitHub 请求失败（HTTP {e.code}）")
