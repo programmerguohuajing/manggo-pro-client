@@ -30,6 +30,13 @@ CloseApplications=yes
 RestartApplications=no
 DisableWelcomePage=no
 
+; 安装前互斥检查：程序是托盘常驻的，关窗口不等于退出；旧进程
+; 还活着时 _internal 里的 DLL 正被它占着，复制到一半就会报
+; DeleteFile failed: code 5（2026-10-27 v1.0.2 实测）。AppMutex 让
+; 安装器在动手之前就拦下来、明说“请先退出”，而不是中途报哑巴错。
+; 互斥名必须跟 main.py 里 CreateMutex 的名字一字不差。
+AppMutex=ManggoProClient_SingleInstance_Mutex
+
 ; 语言：只留英文。Inno Setup 官方发行版不带简体中文语言文件
 ; （ChineseSimplified.isl 属于官方仓库的 Unofficial 翻译），
 ; runner 自带的 Inno Setup 6.7.1 里没有它，写上会直接编译失败
@@ -50,3 +57,17 @@ Name: "{autodesktop}\Manggo Pro Client"; Filename: "{app}\ManggoProClient.exe"; 
 
 [Run]
 Filename: "{app}\ManggoProClient.exe"; Description: "{cm:LaunchProgram,Manggo Pro Client}"; Flags: nowait postinstall skipifsilent unchecked
+
+; 卸载侧同样拦：Inno 卸载器本身不会关应用，进程活着时卸载删不掉
+; 被占用的 DLL，卸载完残留文件 + 残留进程，下次安装必撞 code 5。
+; 拦在卸载之前，让用户先从托盘退出，比卸完再报错强。
+[Code]
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  if CheckForMutexes('ManggoProClient_SingleInstance_Mutex') then
+  begin
+    MsgBox('Manggo Pro Client 仍在运行（托盘图标还在）。请先右键托盘图标 → 退出应用，再卸载，否则被占用的文件删不掉，下次安装还会报错。', mbError, MB_OK);
+    Result := False;
+  end;
+end;
