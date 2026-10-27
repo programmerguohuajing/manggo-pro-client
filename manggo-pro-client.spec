@@ -23,7 +23,9 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 root = os.path.abspath(SPECPATH)
 
-datas = [("assets", "assets")]
+# VERSION 一并打进程序：core/version.py 靠它在关于页显示真实版本、
+# 更新检查拿它跟 Release 比对。只读文本文件，不含任何用户数据。
+datas = [("assets", "assets"), ("packaging/VERSION", ".")]
 
 tmp_ret = collect_all("rapidocr_onnxruntime")
 datas += tmp_ret[0]

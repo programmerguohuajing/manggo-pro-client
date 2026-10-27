@@ -50,7 +50,26 @@ macOS 是两个独立包，不是 universal2 合并包：
   `sudo apt remove manggo-pro-client` 可卸载。
 
 版本号唯一来源是 `packaging/VERSION`（当前 1.0.0），安装器文件名和
-元数据都读它；发版时改这一个文件就行。
+元数据都读它；程序内关于页和更新检查也读它（spec 把它打进程序）。
+
+## 发版与在线更新
+
+程序内“检查更新”查的是 GitHub Releases，不是 Actions 产物
+（产物 30 天过期，不能当更新源）。发版流程：
+
+1. 改 `packaging/VERSION`，提交到 master；
+2. 打标签并推送：`git tag vX.Y.Z && git push origin vX.Y.Z`
+   （标签必须与 VERSION 一致，否则发布 job 直接失败）；
+3. 工作流构建全部产物后自动创建 Release 并上传便携包 + 安装器。
+
+更新行为（v1，不做静默自动安装、不做增量更新）：
+
+- Windows 安装版：下载 Setup → 退出程序 → 启动安装器向导，
+  同一目录覆盖安装，历史和配置不受影响；
+- Windows 便携版：下载新版 zip 到 Downloads，退出后解压覆盖
+  （运行中的 exe 锁文件，程序无法自己覆盖自己）；
+- macOS：下载 DMG 并打开，拖到 Applications 覆盖；
+- Linux：下载 deb 并用系统默认方式打开。
 
 ## 数据文件放在哪（系统安装后）
 

@@ -5,9 +5,13 @@ name: Build packages
 # macOS DMG、Linux deb），详见 packaging/README.md。
 # macOS 产物未签名，首次打开需右键 -> 打开。
 # 版本号唯一来源：packaging/VERSION，安装器文件名和元数据都读它。
+# 推 vX.Y.Z 标签时，publish-release job 会把全部产物发成 GitHub
+# Release（程序内“检查更新”就查这个）；标签必须与 VERSION 一致，
+# 不一致直接失败，防止发错版本。
 on:
   push:
     branches: [build/packages]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -208,3 +212,30 @@ jobs:
           name: ManggoProClient-Linux-x64-Deb
           path: manggo-pro-client_*_amd64.deb
           retention-days: 30
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [windows, macos-intel, macos-arm, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag matches packaging/VERSION
+        run: |
+          VERSION=$(cat packaging/VERSION | tr -d ' \n\r')
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" != "$TAG" ]; then echo "tag $TAG != packaging/VERSION $VERSION"; exit 1; fi
+          echo "release version OK: $VERSION"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ManggoProClient-*
+          merge-multiple: true
+          path: release-assets
+      - name: Create release
+        run: |
+          ls -lh release-assets
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes release-assets/*
+        env:
+          GH_TOKEN: ${{ github.token }}

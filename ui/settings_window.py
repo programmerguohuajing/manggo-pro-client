@@ -4,10 +4,12 @@
 """
 import os
 import json
+import subprocess
+import tempfile
 import time
 import webbrowser
 from typing import Callable
-from PySide6.QtCore import Qt, Signal, QSize, QEvent
+from PySide6.QtCore import Qt, Signal, QSize, QEvent, QThread
 from PySide6.QtWidgets import (
     QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QSpinBox, QSlider, QPushButton, QCheckBox, QFrame,
@@ -28,6 +30,43 @@ from core.platform import IS_WINDOWS
 from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
 from core.logging import error as _log_error
+from core.version import get_version, get_channel
+from core import updater
+
+
+class _UpdateWorker(QThread):
+    """在线更新的后台线程：网络请求不在 UI 线程做，避免界面卡死。
+
+    mode="check" 时拉最新 Release；mode="download" 时下载指定安装包。
+    done 统一发 dict：{"ok": True, ...} 或 {"ok": False, "error": ...}。
+    """
+
+    progress = Signal(int)
+    done = Signal(dict)
+
+    def __init__(self, mode, asset=None, parent=None):
+        super().__init__(parent)
+        self.mode = mode
+        self.asset = asset
+
+    def run(self):
+        try:
+            if self.mode == "check":
+                release = updater.fetch_latest()
+                self.done.emit({"ok": True, "release": release})
+                return
+            asset = self.asset or {}
+            name = asset.get("name", "ManggoProClient-update")
+            if get_channel() == "安装版" and name.endswith(".exe"):
+                dest = os.path.join(tempfile.gettempdir(), name)
+            else:
+                dest = os.path.join(updater.download_dir(), name)
+            updater.download(
+                asset.get("url", ""), dest, progress_cb=self.progress.emit
+            )
+            self.done.emit({"ok": True, "path": dest})
+        except Exception as e:
+            self.done.emit({"ok": False, "error": str(e)})
 
 from core.paths import data_file as _data_file
 
@@ -782,9 +821,26 @@ class SettingsWindow(QWidget):
         lbl_app_name.setStyleSheet(f"color: {theme.ACCENT};")
         c_l.addWidget(lbl_app_name)
 
-        lbl_ver = QLabel("版本号: v2.0 Pro Edition | 纯本地运行 | 免外部侵入")
+        # 真实版本号：以前这里写死的 "v2.0 Pro Edition" 是假版本，已作废；
+        # 现在读 packaging/VERSION（见 core/version.py）。
+        lbl_ver = QLabel(
+            f"版本号：{get_version()}（{get_channel()}）| 纯本地运行"
+        )
         lbl_ver.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 12px;")
         c_l.addWidget(lbl_ver)
+
+        # 在线更新：手动检查 GitHub Releases，有新版按平台引导覆盖安装。
+        update_row = QHBoxLayout()
+        self.btn_check_update = QPushButton("检查更新")
+        self.btn_check_update.clicked.connect(self._on_check_update)
+        update_row.addWidget(self.btn_check_update)
+        self.lbl_update_status = QLabel("点击检查更新，查看是否有新版本。")
+        self.lbl_update_status.setStyleSheet(
+            f"color: {theme.TEXT_GRAY600}; font-size: 12px;"
+        )
+        self.lbl_update_status.setWordWrap(True)
+        update_row.addWidget(self.lbl_update_status, 1)
+        c_l.addLayout(update_row)
 
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
@@ -818,6 +874,108 @@ class SettingsWindow(QWidget):
         l.addWidget(card)
         l.addStretch()
         return container
+
+    # ---------------- 在线更新 ----------------
+    def _start_update_worker(self, mode, asset=None):
+        self._update_worker = _UpdateWorker(mode, asset=asset, parent=self)
+        self._update_worker.done.connect(self._on_update_done)
+        if mode == "download":
+            self._update_worker.progress.connect(self._on_download_progress)
+        self._update_worker.start()
+
+    def _on_check_update(self):
+        self.btn_check_update.setEnabled(False)
+        self.lbl_update_status.setText("正在检查更新…")
+        self._start_update_worker("check")
+
+    def _on_download_progress(self, percent):
+        self.lbl_update_status.setText(f"下载中…{percent}%")
+
+    def _on_update_done(self, payload):
+        worker = self._update_worker
+        is_download = worker is not None and worker.mode == "download"
+        self.btn_check_update.setEnabled(True)
+        if not payload.get("ok"):
+            self.lbl_update_status.setText(f"更新失败：{payload.get('error', '未知错误')}")
+            return
+        if not is_download:
+            self._handle_release(payload["release"])
+            return
+        self._handle_downloaded(payload["path"])
+
+    def _handle_release(self, release):
+        local = get_version()
+        remote = release.get("version", "")
+        if not updater.is_newer(remote, local):
+            self.lbl_update_status.setText(f"已是最新版本（{local}）。")
+            return
+        asset = updater.select_asset(release, get_channel())
+        if asset is None:
+            self.lbl_update_status.setText(
+                f"发现新版本 {remote}，但没有当前平台的安装包。"
+            )
+            return
+        notes = (release.get("body") or "").strip()
+        if len(notes) > 500:
+            notes = notes[:500] + "…"
+        box = QMessageBox(self)
+        box.setWindowTitle("发现新版本")
+        box.setText(f"新版本 {remote} 已发布（当前 {local}）。\n\n{notes}")
+        btn_update = box.addButton("立即更新", QMessageBox.AcceptRole)
+        box.addButton("稍后", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not btn_update:
+            self.lbl_update_status.setText(f"已跳过新版本 {remote}。")
+            return
+        self.btn_check_update.setEnabled(False)
+        self.lbl_update_status.setText(f"正在下载 {asset['name']}…")
+        self._start_update_worker("download", asset=asset)
+
+    def _handle_downloaded(self, path):
+        import sys
+
+        channel = get_channel()
+        if sys.platform == "win32" and channel == "安装版":
+            reply = QMessageBox.question(
+                self,
+                "下载完成",
+                "安装器已下载，是否现在退出程序并启动安装器进行覆盖安装？\n"
+                "（同一目录覆盖安装，历史记录和配置不受影响。）",
+            )
+            if reply == QMessageBox.Yes:
+                subprocess.Popen([path])
+                app = QApplication.instance()
+                if app is not None:
+                    app.quit()
+            else:
+                self.lbl_update_status.setText(f"安装器已下载到：{path}")
+            return
+        if sys.platform == "win32":
+            box = QMessageBox(self)
+            box.setWindowTitle("下载完成")
+            box.setText(f"新版便携包已下载到：\n{path}\n\n请退出程序后解压覆盖旧文件。")
+            btn_folder = box.addButton("打开下载文件夹", QMessageBox.AcceptRole)
+            box.addButton("知道了", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is btn_folder:
+                webbrowser.open(updater.download_dir())
+            self.lbl_update_status.setText(f"已下载到：{path}")
+            return
+        if sys.platform == "darwin":
+            webbrowser.open(path)
+            QMessageBox.information(
+                self, "下载完成", "安装磁盘映像已打开，请把它拖到 Applications 覆盖旧版。"
+            )
+            self.lbl_update_status.setText(f"已下载到：{path}")
+            return
+        webbrowser.open(path)
+        QMessageBox.information(
+            self,
+            "下载完成",
+            "安装包已用系统默认方式打开，请按提示完成安装；\n"
+            "也可以手动执行：sudo dpkg -i " + path,
+        )
+        self.lbl_update_status.setText(f"已下载到：{path}")
 
     # ---------------- 逻辑与事件绑定 ----------------
     def _on_engine_mode_changed(self, idx: int):
