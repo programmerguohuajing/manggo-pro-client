@@ -23,7 +23,7 @@ import win32api
 import winerror
 
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, VK_MENU, VK_CONTROL
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
 from core.hook import GlobalKeyboardHook, _log
 from core.ocr import ocr_engine
 from core.database import db
@@ -142,17 +142,16 @@ class AppCoordinator(QObject):
         self.settings_win.config_changed.connect(self._on_config_changed)
 
     def _on_snipping_requested(self):
-        _send_key(VK_MENU, is_up=True)
+        _release_modifiers()
         self.snipping_widget.start_snipping()
 
     def _notify_bridge(self, status: str, message: str):
         self.notify_signal.emit(status, message)
 
     def _on_hotkey_selection(self):
-        # 划词翻译：强制释放 Alt/Ctrl 物理修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
+        # 划词翻译：彻底释放物理与逻辑修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
         time.sleep(0.04)
-        _send_key(VK_MENU, is_up=True)
-        _send_key(VK_CONTROL, is_up=True)
+        _release_modifiers()
         time.sleep(0.03)
 
         old_seq = user32.GetClipboardSequenceNumber()

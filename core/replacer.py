@@ -84,27 +84,19 @@ user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 
+def _release_modifiers():
+    """彻底释放物理与逻辑修饰键 (Alt, Ctrl, Shift)"""
+    for vk in (0xA4, 0xA5, 0x12, 0xA2, 0xA3, 0x11, 0xA0, 0xA1, 0x10):
+        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+
 def _send_key(vk: int, is_up: bool = False):
-    """
-    使用 SendInput 配合硬件扫描码注入键位事件，确保 Chromium/Electron/ProseMirror 正确解析 DomCode
-    """
     scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
     flags = 0
     if vk in EXTENDED_KEYS:
         flags |= KEYEVENTF_EXTENDEDKEY
     if is_up:
         flags |= KEYEVENTF_KEYUP
-    
-    inp = INPUT()
-    inp.type = INPUT_KEYBOARD
-    inp.u.ki = KEYBDINPUT(
-        wVk=vk,
-        wScan=scan,
-        dwFlags=flags,
-        time=0,
-        dwExtraInfo=None
-    )
-    user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+    user32.keybd_event(vk, scan, flags, 0)
 
 def _press_key(vk: int, times: int = 1, delay: float = 0.02):
     for _ in range(times):
@@ -114,42 +106,57 @@ def _press_key(vk: int, times: int = 1, delay: float = 0.02):
         if delay:
             time.sleep(delay)
 
-def _send_combo(mod_vk: int, key_vk: int, hold_delay: float = 0.03, after_delay: float = 0.06):
-    _send_key(mod_vk, is_up=False)
-    time.sleep(0.02)
-    _send_key(key_vk, is_up=False)
-    time.sleep(hold_delay)
-    _send_key(key_vk, is_up=True)
-    time.sleep(0.015)
-    _send_key(mod_vk, is_up=True)
-    if after_delay:
-        time.sleep(after_delay)
-
 def _send_ctrl_c():
-    _send_combo(VK_CONTROL, VK_C, hold_delay=0.03, after_delay=0.06)
+    _release_modifiers()
+    time.sleep(0.02)
+    user32.keybd_event(VK_CONTROL, 0x1D, 0, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_C, 0x2E, 0, 0)
+    time.sleep(0.04)
+    user32.keybd_event(VK_C, 0x2E, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.04)
 
 def _send_ctrl_v():
-    _send_combo(VK_CONTROL, VK_V, hold_delay=0.03, after_delay=0.06)
-
-def _send_ctrl_a():
-    _send_combo(VK_CONTROL, VK_A, hold_delay=0.03, after_delay=0.06)
+    _release_modifiers()
+    time.sleep(0.02)
+    user32.keybd_event(VK_CONTROL, 0x1D, 0, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_V, 0x2F, 0, 0)
+    time.sleep(0.05)
+    user32.keybd_event(VK_V, 0x2F, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.04)
 
 def _send_shift_home():
-    _send_combo(VK_SHIFT, VK_HOME, hold_delay=0.03, after_delay=0.06)
+    _release_modifiers()
+    time.sleep(0.02)
+    user32.keybd_event(VK_SHIFT, 0x2A, 0, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY, 0)
+    time.sleep(0.04)
+    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.04)
 
 def _send_ctrl_shift_home():
-    _send_key(VK_CONTROL, is_up=False)
-    time.sleep(0.015)
-    _send_key(VK_SHIFT, is_up=False)
+    _release_modifiers()
     time.sleep(0.02)
-    _send_key(VK_HOME, is_up=False)
-    time.sleep(0.03)
-    _send_key(VK_HOME, is_up=True)
+    user32.keybd_event(VK_CONTROL, 0x1D, 0, 0)
     time.sleep(0.015)
-    _send_key(VK_SHIFT, is_up=True)
+    user32.keybd_event(VK_SHIFT, 0x2A, 0, 0)
+    time.sleep(0.02)
+    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY, 0)
+    time.sleep(0.04)
+    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
     time.sleep(0.015)
-    _send_key(VK_CONTROL, is_up=True)
-    time.sleep(0.06)
+    user32.keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.015)
+    user32.keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.04)
 
 def _wait_for_clipboard_change(old_seq: int, timeout: float = 0.35) -> str:
     start = time.time()
@@ -247,46 +254,26 @@ class InPlaceReplacer:
 
             # 2. 校验是否需要翻译
             if not clean_text or not self.contains_chinese(clean_text):
-                # 未选中或不含中文，取消选中状态（按下扩展键 Right 将光标移回末尾）
                 _press_key(VK_RIGHT)
-                _safe_copy(original_clipboard)
                 _log("Aborted: clean_text empty or contains no Chinese")
-                if self.notify_callback:
-                    if clean_text:
-                        self.notify_callback("info", f"未包含中文: {clean_text[:12]}")
-                    else:
-                        self.notify_callback("info", "未检测到输入文字")
                 return
 
-            if self.notify_callback:
-                self.notify_callback("translating", f"正在转译: {clean_text[:15]}...")
-
-            # 3. 调用翻译
+            # 3. 调用翻译 (保持前台焦点稳定，绝不弹出夺焦 Toast 弹窗)
             _log(f"Translating text: {repr(clean_text)}")
             translated_en = self.translate_func(clean_text)
             _log(f"Translated result: {repr(translated_en)}")
 
             if not translated_en or translated_en == clean_text:
                 _press_key(VK_RIGHT)
-                _safe_copy(original_clipboard)
                 _log("Aborted: translation returned empty or identical text")
-                if self.notify_callback:
-                    self.notify_callback("failed", "转译未得到有效结果")
                 return
 
             # 4. 将英文写入剪贴板并通过就地粘贴替换已选中文本（同时覆盖原中文及末尾空格）
             _safe_copy(translated_en)
-            time.sleep(0.04)
+            time.sleep(0.05)
             _send_ctrl_v()
-            _log("Sent Ctrl+V to paste English translation")
-
-            if self.notify_callback:
-                self.notify_callback("success", f"已转译为英文: {translated_en[:20]}...")
-
-            # 延迟 0.6 秒确保 Chromium 等重型富文本宿主完全消费剪贴板后，再恢复用户原剪贴板
-            time.sleep(0.6)
-            _safe_copy(original_clipboard)
-            _log("Restored original clipboard")
+            _log("Sent Ctrl+V to paste English translation successfully")
+            # 翻译后的文本保留在剪贴板中供用户直接使用，绝不在后台强制回滚导致粘贴竞争失败
 
         except Exception as e:
             _log(f"Exception during replace flow: {e}")

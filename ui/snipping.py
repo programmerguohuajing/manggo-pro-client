@@ -40,6 +40,7 @@ class SnippingWidget(QWidget):
         self.end_point = QPoint()
         self.is_snipping = False
 
+        self.setWindowState(Qt.WindowFullScreen)
         self.show()
         self.raise_()
         self.activateWindow()
