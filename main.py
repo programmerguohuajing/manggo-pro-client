@@ -233,7 +233,24 @@ class AppCoordinator(QObject):
             pass
         self.app.quit()
 
+def check_admin_elevation():
+    """
+    检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)
+    """
+    try:
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            params = f'"{os.path.abspath(__file__)}"'
+            res = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", sys.executable, params, None, 1
+            )
+            if res > 32:
+                sys.exit(0)
+    except Exception:
+        pass
+
 def main():
+    check_admin_elevation()
+
     def _uncaught(exc_type, exc_val, exc_tb):
         import traceback
         err = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
