@@ -13,10 +13,11 @@ import time
 import threading
 from typing import Callable, Optional
 
-from core.logging import debug as _log_debug, info as _log_info
+from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning
+from core.platform import IS_WINDOWS
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
+user32 = ctypes.windll.user32 if IS_WINDOWS else None
+kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -42,7 +43,7 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
         ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))
     ]
 
-HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wintypes.WPARAM, ctypes.POINTER(KBDLLHOOKSTRUCT))
+HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wintypes.WPARAM, ctypes.POINTER(KBDLLHOOKSTRUCT)) if IS_WINDOWS else None
 
 class GlobalKeyboardHook:
     def __init__(
@@ -175,6 +176,10 @@ class GlobalKeyboardHook:
         _log_info("HOOK", "Hook loop finished")
 
     def start(self):
+        if not IS_WINDOWS:
+            # macOS / Linux 没有 WH_KEYBOARD_LL：钩子不安装，界面与翻译仍可用。
+            _log_warning("HOOK", "Global hotkeys are Windows-only; hook disabled on this platform")
+            return
         if self._running:
             return
         self._running = True
@@ -185,5 +190,5 @@ class GlobalKeyboardHook:
         if not self._running:
             return
         self._running = False
-        if self._thread and self._thread.is_alive():
+        if IS_WINDOWS and self._thread and self._thread.is_alive():
             user32.PostThreadMessageW(self._thread.ident, 0x0012, 0, 0)

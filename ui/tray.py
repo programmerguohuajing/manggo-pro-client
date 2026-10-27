@@ -94,6 +94,11 @@ class TrayManager(QObject):
             f"Manggo Pro Client\n快捷转译：{state}\n翻译通道：{self.engine_label}\n双击打开设置"
         )
 
+    def set_enabled(self, enabled: bool):
+        """仅刷新展示状态，不发 toggle 信号（供非 Windows 平台回拨用）。"""
+        self.enabled = enabled
+        self._refresh_status()
+
     def set_engine_label(self, engine_label: str):
         """配置变更时由 AppCoordinator 调用，只刷新展示，不改任何逻辑。"""
         self.engine_label = engine_label

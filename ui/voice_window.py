@@ -11,6 +11,7 @@ from PySide6.QtGui import QFont, QColor, QPainter, QBrush, QPen
 import pyperclip
 
 from ui import theme
+from core.platform import IS_WINDOWS
 
 # Windows 模拟按键
 VK_LWIN = 0x5B
@@ -106,6 +107,15 @@ class VoiceInputWindow(QWidget):
 
     def start_listening(self):
         """唤出语音输入并唤起 Windows 系统原生高精度听写引擎"""
+        if not IS_WINDOWS:
+            # macOS / Linux 没有 Win+H 系统听写：只显示提示卡片，不启动听写线程。
+            self.lbl_hint.setText("语音听写仅支持 Windows（Win+H）")
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            from PySide6.QtCore import QTimer as _QTimer
+            _QTimer.singleShot(3000, self.hide)
+            return
         # 居中偏下显示
         screen = self.screen().geometry()
         x = screen.x() + (screen.width() - self.width()) // 2

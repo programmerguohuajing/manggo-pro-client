@@ -10,7 +10,8 @@ from ctypes import wintypes
 from typing import Callable, Optional
 import pyperclip
 
-from core.logging import info as _log_info
+from core.logging import info as _log_info, warning as _log_warning
+from core.platform import IS_WINDOWS
 
 def _log(msg: str):
     _log_info("REPLACER", msg)
@@ -74,10 +75,11 @@ class INPUT(ctypes.Structure):
         ("u", _INPUT_UNION)
     ]
 
-user32 = ctypes.windll.user32
-user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
-user32.SendInput.restype = wintypes.UINT
-user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+user32 = ctypes.windll.user32 if IS_WINDOWS else None
+if IS_WINDOWS:
+    user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+    user32.SendInput.restype = wintypes.UINT
+    user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 
 def _release_modifiers():
     """彻底释放物理与逻辑修饰键 (Alt, Ctrl, Shift)"""
@@ -190,6 +192,11 @@ class InPlaceReplacer:
         """
         触发三次空格快速转译逻辑（在独立子线程中运行）
         """
+        if not IS_WINDOWS:
+            _log_warning("REPLACER", "In-place replace is Windows-only")
+            if self.notify_callback:
+                self.notify_callback("error", "就地转译仅支持 Windows")
+            return
         if self.is_busy:
             return
         threading.Thread(target=self._do_replace_flow, daemon=True).start()

@@ -18,9 +18,13 @@ import ctypes
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
 import pyperclip
-import win32event
-import win32api
-import winerror
+
+from core.platform import IS_WINDOWS
+
+if IS_WINDOWS:
+    import win32api
+    import win32event
+    import winerror
 
 from core.translator import TranslationManager
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
@@ -40,9 +44,10 @@ from ui.icons import get_app_icon
 from ui.tray import TrayManager
 from ui.console_window import ConsoleWindow
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
-user32.GetClipboardSequenceNumber.restype = ctypes.c_ulong
+user32 = ctypes.windll.user32 if IS_WINDOWS else None
+kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
+if IS_WINDOWS:
+    user32.GetClipboardSequenceNumber.restype = ctypes.c_ulong
 
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app.pid")
 
@@ -54,12 +59,13 @@ def force_activate_window(win):
     win.setWindowState(win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
     win.raise_()
     win.activateWindow()
-    try:
-        hwnd = int(win.winId())
-        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-        user32.SetForegroundWindow(hwnd)
-    except Exception:
-        pass
+    if IS_WINDOWS:
+        try:
+            hwnd = int(win.winId())
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
 
 class AppCoordinator(QObject):
     # 跨线程信号
@@ -88,7 +94,7 @@ class AppCoordinator(QObject):
         self.settings_win = SettingsWindow()
         self.console_win = ConsoleWindow()
         self.tray = TrayManager(
-            initial_enabled=self.config.get("triple_space_enabled", True),
+            initial_enabled=self.config.get("triple_space_enabled", True) and IS_WINDOWS,
             engine_label=self._engine_label(),
         )
 
@@ -163,6 +169,9 @@ class AppCoordinator(QObject):
         self.notify_signal.emit(status, message)
 
     def _on_hotkey_selection(self):
+        if not IS_WINDOWS:
+            self.notify_signal.emit("failed", "划选翻译仅支持 Windows")
+            return
         # 划词翻译：彻底释放物理与逻辑修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
         time.sleep(0.04)
         _release_modifiers()
@@ -225,6 +234,10 @@ class AppCoordinator(QObject):
 
     @Slot(bool)
     def _on_toggle_hook(self, enabled: bool):
+        if not IS_WINDOWS:
+            self.tray.set_enabled(False)
+            self.toast.show_message("error", "快捷转译仅支持 Windows")
+            return
         if enabled:
             self.hook.start()
             self.toast.show_message("success", "快捷转译已恢复")
@@ -252,6 +265,8 @@ def check_admin_elevation():
     """
     检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)
     """
+    if not IS_WINDOWS:
+        return
     try:
         if not ctypes.windll.shell32.IsUserAnAdmin():
             params = f'"{os.path.abspath(__file__)}"'
@@ -272,25 +287,40 @@ def main():
         _log_error("APP", f"UNCAUGHT EXCEPTION:\n{err}")
     sys.excepthook = _uncaught
 
-    # 智能单实例管理：若已有旧实例存在，自动终结旧进程并启动全新干净会话
-    mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
-    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+    # 智能单实例管理：Windows 用互斥体 + 终结旧进程；其他平台用 PID 存活检查。
+    if IS_WINDOWS:
+        mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
+        if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+            if os.path.exists(PID_FILE):
+                try:
+                    with open(PID_FILE, "r") as f:
+                        old_pid = int(f.read().strip())
+                    if old_pid != os.getpid():
+                        h_proc = kernel32.OpenProcess(0x0001, False, old_pid)
+                        if h_proc:
+                            kernel32.TerminateProcess(h_proc, 0)
+                            kernel32.CloseHandle(h_proc)
+                            time.sleep(0.2)
+                except Exception:
+                    pass
+            # 重新创建互斥体
+            if mutex:
+                win32api.CloseHandle(mutex)
+            mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
+    else:
+        mutex = None
         if os.path.exists(PID_FILE):
             try:
                 with open(PID_FILE, "r") as f:
                     old_pid = int(f.read().strip())
                 if old_pid != os.getpid():
-                    h_proc = kernel32.OpenProcess(0x0001, False, old_pid)
-                    if h_proc:
-                        kernel32.TerminateProcess(h_proc, 0)
-                        kernel32.CloseHandle(h_proc)
-                        time.sleep(0.2)
+                    os.kill(old_pid, 0)
+                    print("已有实例在运行，退出。")
+                    return
+            except ProcessLookupError:
+                pass  # 旧 PID 已不存在，视为残留文件，继续启动并覆盖
             except Exception:
                 pass
-        # 重新创建互斥体
-        if mutex:
-            win32api.CloseHandle(mutex)
-        mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
 
     # 记录当前进程 PID
     try:

@@ -1,0 +1,8 @@
+# 运行时依赖（全平台）
+PySide6>=6.6
+pyperclip>=1.8
+Pillow>=10.0
+numpy>=1.26
+rapidocr-onnxruntime>=1.3
+# 仅 Windows：单实例互斥体、SAPI 朗读
+pywin32>=306; sys_platform == "win32"

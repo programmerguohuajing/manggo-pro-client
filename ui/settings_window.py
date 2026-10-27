@@ -646,12 +646,22 @@ class SettingsWindow(QWidget):
         line.setStyleSheet(f"color: {theme.BORDER};")
         c_l.addWidget(line)
 
-        # 状态指示
+        # 状态指示：Windows 专属项在其他平台上如实标注，不谎报就绪。
+        from core.platform import IS_MAC, IS_WINDOWS
+        if IS_WINDOWS:
+            hook_status = "🟢 正常监听中 (无需管理员权限)"
+            tts_status = "🟢 就绪 (Windows 原生秒发音)"
+        elif IS_MAC:
+            hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
+            tts_status = "🟢 就绪 (macOS 系统 say)"
+        else:
+            hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
+            tts_status = "🟡 需安装 espeak-ng 后可用"
         status_items = [
-            ("⚡ 键盘底层钩子 (WH_KEYBOARD_LL):", "🟢 正常监听中 (无需管理员权限)"),
+            ("⚡ 键盘底层钩子 (WH_KEYBOARD_LL):", hook_status),
             ("📖 本地历史记录数据库 (SQLite):", "🟢 已挂载 (history.sqlite3)"),
             ("📷 离线文字识别引擎 (RapidOCR):", "🟢 就绪 (支持中英混排离线识别)"),
-            ("🔊 离线语音合成朗读 (SAPI TTS):", "🟢 就绪 (Windows 原生秒发音)")
+            ("🔊 语音合成朗读 (TTS):", tts_status)
         ]
         for title, val in status_items:
             h = QHBoxLayout()
