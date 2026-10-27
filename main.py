@@ -108,7 +108,7 @@ class AppCoordinator(QObject):
         self.selection_translate_signal.connect(self._do_selection_translate)
         self.ocr_translate_signal.connect(self._do_ocr_translate)
         self.open_main_signal.connect(lambda: force_activate_window(self.main_win))
-        self.open_snipping_signal.connect(self.snipping_widget.start_snipping)
+        self.open_snipping_signal.connect(self._on_snipping_requested)
         self.open_voice_signal.connect(self.voice_win.start_listening)
 
         # 截图完成送入 OCR
@@ -134,6 +134,11 @@ class AppCoordinator(QObject):
 
         # 配置变更
         self.settings_win.config_changed.connect(self._on_config_changed)
+
+    def _on_snipping_requested(self):
+        _send_key(VK_MENU, is_up=True)
+        time.sleep(0.04)
+        self.snipping_widget.start_snipping()
 
     def _notify_bridge(self, status: str, message: str):
         self.notify_signal.emit(status, message)

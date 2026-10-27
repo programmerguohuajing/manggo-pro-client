@@ -157,6 +157,13 @@ class FloatResultWindow(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
 
     def _toggle_star(self):
         if self.current_record_id > 0:

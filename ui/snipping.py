@@ -43,6 +43,13 @@ class SnippingWidget(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
 
     def paintEvent(self, event):
         if not self.full_screen_pixmap:

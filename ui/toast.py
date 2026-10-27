@@ -71,6 +71,12 @@ class FloatToast(QWidget):
 
         self.opacity_effect.setOpacity(1.0)
         self.show()
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+        except Exception:
+            pass
 
         if status != "translating":
             self.hide_timer.start(duration_ms)
