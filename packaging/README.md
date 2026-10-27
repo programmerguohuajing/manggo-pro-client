@@ -97,5 +97,4 @@ Qt + Python + numpy + onnxruntime + cv2 的底子就在那儿，
 
 `history.sqlite3`（用户翻译历史）、`config.json`（可能含 API Key）、
 `debug_app.log`、`.app.pid` 都不在 PyInstaller 的 datas 里。
-首次启动会在程序目录旁新建空历史库；Windows 上仍会按原逻辑从原版
-Manggo 同步一次历史。
+首次启动会在程序目录旁新建空历史库。
