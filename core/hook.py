@@ -73,43 +73,40 @@ class GlobalKeyboardHook:
         if nCode >= 0:
             vk_code = lParam.contents.vkCode
             is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
-            is_up = wParam in (WM_KEYUP, WM_SYSKEYUP)
-
-            # 追踪 Alt 与 Shift 修饰键状态
-            if vk_code in (VK_MENU, 0xA4, 0xA5):
-                self.alt_pressed = is_down
-            if vk_code in (VK_SHIFT, 0xA0, 0xA1):
-                self.shift_pressed = is_down
 
             if is_down:
                 now = time.time()
+                # 硬件级实时查询修饰键状态，彻底避免 Alt+Tab 或窗口切出时 missed KEYUP 导致修饰键“死锁”
+                alt_down = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+                ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                shift_down = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
 
                 # 1. 快捷键: Alt + Q (划词翻译) —— 绝不占用 Alt+D
-                if self.alt_pressed and vk_code == VK_Q:
+                if alt_down and vk_code == VK_Q:
                     if self.on_selection_translate:
                         threading.Thread(target=self.on_selection_translate, daemon=True).start()
                     return 1
 
                 # 2. 快捷键: Alt + W (截图 OCR 翻译) —— 绝不占用 Alt+X
-                if self.alt_pressed and vk_code == VK_W:
+                if alt_down and vk_code == VK_W:
                     if self.on_screenshot_translate:
                         threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
                     return 1
 
                 # 3. 快捷键: Alt + M (呼出桌面工作台) —— 绝不占用 Alt+D
-                if self.alt_pressed and vk_code == VK_M:
+                if alt_down and vk_code == VK_M:
                     if self.on_open_main:
                         threading.Thread(target=self.on_open_main, daemon=True).start()
                     return 1
 
                 # 4. 快捷键: Alt + Space (语音听写输入)
-                if self.alt_pressed and vk_code == VK_SPACE:
+                if alt_down and vk_code == VK_SPACE:
                     if self.on_voice_input:
                         threading.Thread(target=self.on_voice_input, daemon=True).start()
                     return 1
 
-                # 5. 核心 Pro 特性: 连续三次空格就地转译 (非修饰键状态)
-                if vk_code == VK_SPACE and not self.alt_pressed:
+                # 5. 核心 Pro 特性: 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
+                if vk_code == VK_SPACE and not alt_down and not ctrl_down:
                     if self.last_space_time > 0 and (now - self.last_space_time) <= self.max_interval:
                         self.space_count += 1
                     else:
@@ -121,8 +118,12 @@ class GlobalKeyboardHook:
                         self.last_space_time = 0.0
                         if self.on_triple_space:
                             threading.Thread(target=self.on_triple_space, daemon=True).start()
-                elif vk_code not in (0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5):
-                    # 按下了非修饰键的其他普通键，重置空格连击
+                elif vk_code not in (
+                    0x10, 0x11, 0x12, 0x5B, 0x5C, # Shift, Ctrl, Alt, Win
+                    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, # L/R Shift, Ctrl, Alt
+                    0xE5 # VK_PROCESSKEY (输入法正在合成汉字/选词，不打断空格计时)
+                ):
+                    # 按下了其他普通键，重置空格连击
                     self.space_count = 0
                     self.last_space_time = 0.0
 

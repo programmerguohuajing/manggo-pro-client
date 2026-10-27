@@ -95,7 +95,7 @@ class AppCoordinator(QObject):
             on_screenshot_translate=self.open_snipping_signal.emit,
             on_voice_input=self.open_voice_signal.emit,
             on_open_main=self.open_main_signal.emit,
-            max_interval=self.config.get("max_interval_ms", 550) / 1000.0
+            max_interval=self.config.get("max_interval_ms", 650) / 1000.0
         )
         self.hook.start()
 

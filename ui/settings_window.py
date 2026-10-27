@@ -23,7 +23,7 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 DEFAULT_CONFIG = {
     "engine": "free",  # "free" 或 "llm"
     "triple_space_enabled": True,
-    "max_interval_ms": 550,
+    "max_interval_ms": 650,
     "llm_api_url": "https://api.deepseek.com/v1",
     "llm_api_key": "",
     "llm_model": "deepseek-chat",
@@ -897,7 +897,7 @@ class SettingsWindow(QWidget):
 
     def _load_values(self):
         self.chk_triple_space.setChecked(self.config.get("triple_space_enabled", True))
-        inv = self.config.get("max_interval_ms", 550)
+        inv = self.config.get("max_interval_ms", 650)
         self.spn_interval.setValue(inv)
         self.slider_interval.setValue(inv)
 
