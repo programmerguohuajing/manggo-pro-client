@@ -83,9 +83,13 @@ exe = EXE(
     bootloader_ignore_signals=False,
     # strip 只在 Linux/macOS 生效：实测 libpython3.12.so 28.5 MB -> 6.5 MB，
     # 其余 wheel 自带的 .so 本来就是 stripped，strip 后基本不变。
-    # Windows 上 strip 对 PE 无效，靠 UPX（工作流里装 UPX 后才生效）。
-    strip=True,
-    upx=True,
+    # Windows 上 strip 和 UPX 一律关掉：2026-10-27 实测，Windows 构建对
+    # python312.dll 又 strip 又 UPX（压成 UPX0/UPX1 段，6.9 MB -> 1.8 MB）
+    # 之后，用户真机启动报 Failed to load Python DLL、LoadLibrary
+    # 内存位置访问无效；旧包（不 strip、不 UPX）的 python312.dll 是
+    # 正常 .text/.rdata/.data 段。瘦身省的体积没有一个能跑的包重要。
+    strip=(sys.platform != "win32"),
+    upx=(sys.platform != "win32"),
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -99,8 +103,8 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=True,
-    upx=True,
+    strip=(sys.platform != "win32"),
+    upx=(sys.platform != "win32"),
     upx_exclude=[],
     name="ManggoProClient",
 )

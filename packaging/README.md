@@ -77,8 +77,11 @@ tar.gz 214 MB）的构成：
   ldd 确认 QtGui/QtWidgets 不链接这些库，删了不影响启动。
 - 依赖改 `PySide6-Essentials`：元包还会拉 WebEngine/Pdf/Addons，
   Essentials 只含界面要用的模块。
-- Windows job 装 UPX（之前 spec 写了 upx=True 但 runner 没装 UPX，
-  等于空操作；Linux/macOS 上 PyInstaller 本来就禁用 UPX）。
+- Windows 不用 UPX、不 strip：2026-10-27 实测，UPX 后的 python312.dll
+  （UPX0/UPX1 段，6.9 MB → 1.8 MB）在用户真机上启动报
+  Failed to load Python DLL、LoadLibrary 内存位置访问无效，
+  所以 spec 里 Windows 的 strip/UPX 一律关掉，宁可包大一点；
+  Linux/macOS 上 strip 照常（PyInstaller 本来就在非 Windows 上禁用 UPX）。
 - 压缩级别拉满：mac 用 `zip -9`，Linux 用 `gzip -9`。
 
 刻意没动、也别再动的部分：opencv 的 ffmpeg/Qt5 库。ldd 证明

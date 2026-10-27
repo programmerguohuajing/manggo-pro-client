@@ -24,9 +24,9 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
-      # spec 里 upx=True，但 runner 默认没有 UPX 时它是空操作；装上才真压缩。
-      - name: Install UPX
-        run: choco install upx -y
+      # 注意：不要在这里装 UPX。spec 已在 Windows 上关掉 strip/UPX，
+      # 因为 UPX 后的 python312.dll 在用户真机上 LoadLibrary 失败
+      # （见 spec 注释），装 UPX 只会让问题回来。
       - name: Build with PyInstaller
         run: pyinstaller manggo-pro-client.spec
       - name: Prune dead weight
