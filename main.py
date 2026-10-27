@@ -230,8 +230,16 @@ class AppCoordinator(QObject):
 
     @Slot(str)
     def _do_ocr_translate(self, ocr_text: str):
-        trans_res = self.trans_mgr.translate(ocr_text)
+        try:
+            trans_res = self.trans_mgr.translate(ocr_text)
+        except Exception:
+            # 翻译失败也要把常驻的 translating 提示换掉，否则同样挂着不消失。
+            self.notify_signal.emit("failed", "翻译失败，请检查网络或参数")
+            return
         self.float_win.display("截图 OCR 翻译", ocr_text, trans_res, source_type="ocr")
+        # 结果窗已出，常驻的“正在进行 OCR 文字提取...”必须在这里关闭；
+        # 之前成功这路什么都没发，提示就永远挂在右下角。
+        self.toast.dismiss()
 
     @Slot(bool)
     def _on_toggle_hook(self, enabled: bool):

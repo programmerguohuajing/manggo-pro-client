@@ -61,6 +61,13 @@ class FloatToast(QWidget):
         if status != "translating":
             self.hide_timer.start(duration_ms)
 
+    def dismiss(self):
+        """主动关闭常驻提示。translating 是有意常驻的进度提示（等终态
+        消息来替换），所以任务完成时必须由调用方显式关闭，否则像 OCR
+        成功那路一样永远挂在右下角。"""
+        self.hide_timer.stop()
+        self.fade_out()
+
     def fade_out(self):
         self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
         self.anim.setDuration(250)
