@@ -45,6 +45,13 @@ class TrayManager(QObject):
         self._build_menu(initial_enabled)
         self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
+        # 弹出原生 Windows 托盘气泡通知，即使在 Windows 11 图标默认折叠在“^”隐藏区时也能清晰提示
+        self.tray_icon.showMessage(
+            "Manggo Pro 助手已就绪",
+            "服务已在系统托盘运行中 (如任务栏未直接显示请点击右下角“^”箭头)。\n• 双击托盘图标打开设置中心\n• 连续 3 次空格自动转译",
+            QSystemTrayIcon.Information,
+            3500
+        )
 
     def _build_menu(self, enabled: bool):
         menu = QMenu()

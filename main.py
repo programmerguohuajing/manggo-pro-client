@@ -228,6 +228,16 @@ def main():
     # 会话级互斥体，防止重复启动冲突
     mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+        app = QApplication(sys.argv)
+        QMessageBox.information(
+            None,
+            "Manggo Pro 已在运行中",
+            "Manggo Pro 客户端当前已在后台正常运行中！\n\n"
+            "• 请查看屏幕右下角任务栏托盘区（若未直接显示，请点击“^”展开箭头查看金黄色芒果图标）。\n"
+            "• 双击托盘图标：可打开偏好设置中心。\n"
+            "• 快捷键：Alt+Q 划词翻译，Alt+W 截图 OCR，Alt+M 呼出工作台。\n"
+            "• 在任意输入框输入中文后轻按 3 次空格即可自动就地转译。"
+        )
         sys.exit(0)
 
     app = QApplication(sys.argv)
