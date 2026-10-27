@@ -32,6 +32,16 @@ SURFACE_MUTED = "#F9FAFB"
 SURFACE_GRAY = "#F3F4F6"
 APP_BG = "#F8F9FB"
 
+# V2 高级感色板（设置页新布局专用）：暖纸底 + 墨色文字 + 暖灰次要文字，
+# 细分隔线代替色块卡片；琥珀只做点缀（当前项竖线、开关开启态、文字链、
+# 保存主按钮），主按钮按用户定保持琥珀色。
+INK = "#1C1917"
+PAPER = "#FAFAF9"
+WARM_GRAY = "#78716C"
+WARM_FAINT = "#A8A29E"
+HAIRLINE = "#E7E5E4"
+INPUT_FILL = "#F5F5F4"
+
 SUCCESS = "#27AE60"
 SUCCESS_DARK = "#059669"
 SUCCESS_BG = "#DCFCE7"
@@ -297,46 +307,51 @@ QSlider::handle:horizontal:hover {{
 # ---- 设置窗口样式（原 settings_window.py 原样迁移，内容未改） ----
 SETTINGS_STYLESHEET = """
 QWidget#SettingsWindow {
-    background-color: #F8F9FB;
+    background-color: #FAFAF9;
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* 侧边导航栏 */
+/* V2：侧边导航只剩文字，当前项靠左侧 2px 琥珀竖线标识，不用色块背景 */
 QListWidget#NavList {
-    background-color: #FFFFFF;
+    background-color: transparent;
     border: none;
-    border-right: 1px solid #E5E7EB;
     outline: none;
-    padding-top: 14px;
+    padding-top: 18px;
 }
 QListWidget#NavList::item {
-    height: 44px;
-    margin: 4px 10px;
-    padding-left: 14px;
-    border-radius: 8px;
-    color: #4B5563;
-    font-size: 13px;
-    font-weight: 500;
+    height: 42px;
+    margin: 2px 8px;
+    padding-left: 12px;
+    border-left: 2px solid transparent;
+    color: #78716C;
+    font-size: 14px;
 }
 QListWidget#NavList::item:hover {
-    background-color: #FFF7ED;
-    color: #EA580C;
+    color: #1C1917;
 }
 QListWidget#NavList::item:selected {
-    background-color: #FFEDD5;
-    color: #C2410C;
+    background-color: transparent;
+    border-left: 2px solid #EA580C;
+    color: #1C1917;
     font-weight: bold;
 }
 
-/* 卡片容器 */
+/* V2：分区不再是带边框的卡片，卡片容器拍平成透明，分区之间靠间距区分 */
 QFrame.CardFrame {
-    background-color: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-radius: 12px;
-    padding: 16px 18px;
+    background-color: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
 }
 QFrame.CardFrame:hover {
-    border-color: #FDBA74;
+    border: none;
+}
+
+/* V2：分区标题是 12px 灰色小字，不再是大号加粗标题 */
+QLabel.SectionHead {
+    font-size: 12px;
+    font-weight: 600;
+    color: #A8A29E;
 }
 
 /* 标题规范 */
@@ -356,15 +371,30 @@ QLabel.FieldLabel {
     color: #374151;
 }
 
-/* 输入框与下拉框 */
+/* 输入框与下拉框：V2 改成浅灰底无边框，聚焦时才出现琥珀边 */
 QLineEdit, QComboBox, QSpinBox, QTextEdit {
-    background-color: #FFFFFF;
-    border: 1px solid #D1D5DB;
+    background-color: #F5F5F4;
+    border: 1px solid #E7E5E4;
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
     color: #111827;
     selection-background-color: #F97316;
+}
+
+/* V2：滑块改细线 + 小圆 thumb，不再是粗彩条 */
+QSlider::groove:horizontal {
+    height: 3px;
+    background-color: #E7E5E4;
+    border-radius: 1px;
+}
+QSlider::handle:horizontal {
+    width: 16px;
+    height: 16px;
+    margin: -7px 0;
+    border-radius: 8px;
+    background-color: #FFFFFF;
+    border: 1px solid #D6D3D1;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
     border: 1.5px solid #EA580C;

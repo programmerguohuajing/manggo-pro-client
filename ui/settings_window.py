@@ -32,6 +32,7 @@ from ui.theme import SETTINGS_STYLESHEET
 from core.logging import error as _log_error
 from core.version import get_version, get_channel
 from core import updater
+from core.settings_search import section_matches
 
 
 class _UpdateWorker(QThread):
@@ -323,37 +324,48 @@ class SettingsWindow(QWidget):
         super().__init__(parent)
         self.setObjectName("SettingsWindow")
         self.setWindowTitle("Manggo Pro - 偏好设置")
-        self.resize(780, 620)
-        self.setMinimumSize(700, 560)
+        self.resize(860, 640)
+        self.setMinimumSize(760, 600)
         self.setStyleSheet(SETTINGS_STYLESHEET)
 
         self.config = load_config()
+        # _load_values 期间的控件赋值不算“未保存更改”。
+        self._loading = True
 
         self._init_ui()
         self._load_values()
+        self._loading = False
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # 1. 顶部 Header 栏
+        # 1. 顶部 Header 栏（V2：标题 + 搜索 + 打开主工作台；运行中状态
+        # 不放这里——暂停状态在托盘手里，设置页拿不到，接它要改主程序
+        # 状态管线，不属于纯布局范围；通道信息在引擎分区第一行可见。）
         header = QFrame(self)
         header.setFixedHeight(64)
-        header.setStyleSheet(f"background-color: {theme.SURFACE}; border-bottom: 1px solid {theme.BORDER};")
+        header.setStyleSheet(f"background-color: {theme.PAPER}; border-bottom: 1px solid {theme.HAIRLINE};")
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(20, 0, 20, 0)
+        h_layout.setContentsMargins(28, 0, 28, 0)
 
-        lbl_logo = QLabel("🥭 Manggo Pro", header)
-        lbl_logo.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
-        lbl_logo.setStyleSheet(f"color: {theme.ACCENT};")
-        h_layout.addWidget(lbl_logo)
+        lbl_title = QLabel("偏好设置", header)
+        lbl_title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
+        lbl_title.setStyleSheet(f"color: {theme.INK};")
+        h_layout.addWidget(lbl_title)
 
-        lbl_sub = QLabel("偏好设置与通道配置", header)
-        lbl_sub.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px; margin-left: 8px;")
-        h_layout.addWidget(lbl_sub)
+        lbl_wordmark = QLabel("Manggo Pro", header)
+        lbl_wordmark.setStyleSheet(f"color: {theme.WARM_GRAY}; font-size: 13px; margin-left: 6px;")
+        h_layout.addWidget(lbl_wordmark)
 
         h_layout.addStretch()
+
+        self._search = QLineEdit(header)
+        self._search.setPlaceholderText("搜索设置")
+        self._search.setFixedWidth(200)
+        self._search.textChanged.connect(self._apply_search)
+        h_layout.addWidget(self._search)
 
         self.btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+M)", header)
         self.btn_go_main.setProperty("class", "SecondaryBtn")
@@ -362,53 +374,82 @@ class SettingsWindow(QWidget):
 
         root_layout.addWidget(header)
 
-        # 2. 中间主体区 (左侧导航 + 右侧卡片页面)
+        # 2. 中间主体区（V2：左侧分区导航 + 右侧单页滚动，不再切页）
         body = QWidget(self)
         b_layout = QHBoxLayout(body)
         b_layout.setContentsMargins(0, 0, 0, 0)
         b_layout.setSpacing(0)
 
-        # 侧边栏
+        # 侧边栏：只剩标题文字，不要下面那行小字。
         self.nav_list = QListWidget(body)
         self.nav_list.setObjectName("NavList")
-        self.nav_list.setFixedWidth(160)
-        self.nav_list.addItem(QListWidgetItem("⚡ 快捷转译"))
-        self.nav_list.addItem(QListWidgetItem("🧠 翻译引擎"))
-        self.nav_list.addItem(QListWidgetItem("⌨️ 全局热键"))
-        self.nav_list.addItem(QListWidgetItem("ℹ️ 关于与状态"))
+        self.nav_list.setFixedWidth(168)
+        self._nav_keys = ["engine", "trigger", "hotkeys", "about"]
+        for title in ["翻译通道", "触发方式", "全局热键", "关于与状态"]:
+            self.nav_list.addItem(QListWidgetItem(title))
         self.nav_list.setCurrentRow(0)
-        self.nav_list.currentRowChanged.connect(self._on_tab_changed)
+        self.nav_list.currentRowChanged.connect(self._on_nav_changed)
         b_layout.addWidget(self.nav_list)
 
-        # 堆叠卡片区
-        self.stack = QStackedWidget(body)
-        self.stack.setStyleSheet("background-color: transparent;")
+        # 单页滚动区：四个分区按使用频率排，一页看完。
+        self._scroll = QScrollArea(body)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(4, 20, 28, 20)
+        content_layout.setSpacing(30)
 
-        self.tab_trigger = self._build_trigger_tab()
-        self.tab_engine = self._build_engine_tab()
-        self.tab_hotkeys = self._build_hotkeys_tab()
-        self.tab_about = self._build_about_tab()
+        self._sections = []
+        builders = [
+            ("engine", "翻译通道", self._build_engine_tab),
+            ("trigger", "触发方式", self._build_trigger_tab),
+            ("hotkeys", "全局热键", self._build_hotkeys_tab),
+            ("about", "关于与状态", self._build_about_tab),
+        ]
+        for key, title, builder in builders:
+            section = QWidget()
+            s_layout = QVBoxLayout(section)
+            s_layout.setContentsMargins(0, 0, 0, 0)
+            s_layout.setSpacing(8)
+            lbl_head = QLabel(title)
+            lbl_head.setProperty("class", "SectionHead")
+            lbl_head.setStyleSheet("padding-left: 24px;")
+            s_layout.addWidget(lbl_head)
+            s_layout.addWidget(builder())
+            content_layout.addWidget(section)
+            self._sections.append((key, section))
+        content_layout.addStretch()
 
-        self.stack.addWidget(self.tab_trigger)
-        self.stack.addWidget(self.tab_engine)
-        self.stack.addWidget(self.tab_hotkeys)
-        self.stack.addWidget(self.tab_about)
+        self._no_result = QLabel("没有找到相关设置，换个词试试。")
+        self._no_result.setStyleSheet(f"color: {theme.WARM_GRAY}; font-size: 13px; padding-left: 24px;")
+        self._no_result.setVisible(False)
+        content_layout.addWidget(self._no_result)
 
-        b_layout.addWidget(self.stack, 1)
+        self._scroll.setWidget(content)
+        self._scroll.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
+        self._navigating = False
+        b_layout.addWidget(self._scroll, 1)
         root_layout.addWidget(body, 1)
 
-        # 3. 底部操作栏
+        # 3. 底部操作栏（主按钮按用户定保持琥珀色 PrimaryBtn）
         footer = QFrame(self)
         footer.setFixedHeight(62)
-        footer.setStyleSheet(f"background-color: {theme.SURFACE}; border-top: 1px solid {theme.BORDER};")
+        footer.setStyleSheet(f"background-color: {theme.PAPER}; border-top: 1px solid {theme.HAIRLINE};")
         f_layout = QHBoxLayout(footer)
-        f_layout.setContentsMargins(20, 0, 20, 0)
+        f_layout.setContentsMargins(28, 0, 28, 0)
 
         self.lbl_status = QLabel("", footer)
         self.lbl_status.setStyleSheet(f"color: {theme.SUCCESS_DARK}; font-size: 12px; font-weight: 500;")
         f_layout.addWidget(self.lbl_status)
 
         f_layout.addStretch()
+
+        self.lbl_dirty = QLabel("● 有未保存更改", footer)
+        self.lbl_dirty.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
+        self.lbl_dirty.setVisible(False)
+        f_layout.addWidget(self.lbl_dirty)
 
         self.btn_test = QPushButton("⚡ 测试当前翻译", footer)
         self.btn_test.setProperty("class", "SecondaryBtn")
@@ -421,11 +462,90 @@ class SettingsWindow(QWidget):
         f_layout.addWidget(self.btn_save)
 
         root_layout.addWidget(footer)
+        self._connect_dirty_signals()
 
-    def _on_tab_changed(self, idx: int):
-        self.stack.setCurrentIndex(idx)
+    def _on_nav_changed(self, idx: int):
+        """点左侧分区：滚到对应分区（锚点，不是切页）。"""
+        # 导航在分区建好之前就会触发一次初始选中，先放行。
+        if not hasattr(self, "_sections"):
+            return
+        if idx < 0 or idx >= len(self._sections):
+            return
+        section = self._sections[idx][1]
+        if not section.isVisible():
+            return
+        bar = self._scroll.verticalScrollBar()
+        self._navigating = True
+        try:
+            if section.y() > 0:
+                bar.setValue(section.y())
+            else:
+                self._scroll.ensureWidgetVisible(section)
+        finally:
+            self._navigating = False
 
-    # ---------------- 选项卡 1: 快捷转译 ----------------
+    def _on_scroll_changed(self, value: int):
+        """手动滚动时反向高亮左侧分区；锚点跳转触发的滚动不参与。"""
+        if self._navigating:
+            return
+        current = 0
+        for i, (_, section) in enumerate(self._sections):
+            if section.isVisible() and section.y() <= value + 10:
+                current = i
+        if self.nav_list.currentRow() != current:
+            self.nav_list.blockSignals(True)
+            try:
+                self.nav_list.setCurrentRow(current)
+            finally:
+                self.nav_list.blockSignals(False)
+
+    def _apply_search(self, text: str):
+        """搜索框过滤分区；搜不到时显示一行提示，不留白页。"""
+        visible_count = 0
+        for i, (key, section) in enumerate(self._sections):
+            visible = section_matches(key, text)
+            section.setVisible(visible)
+            self.nav_list.item(i).setHidden(not visible)
+            if visible:
+                visible_count += 1
+        self._no_result.setVisible(bool(text.strip()) and visible_count == 0)
+        self._scroll.verticalScrollBar().setValue(0)
+
+    def _mark_dirty(self):
+        if not getattr(self, "_loading", False):
+            self.lbl_dirty.setVisible(True)
+
+    def _connect_dirty_signals(self):
+        """值一改就亮底部“有未保存更改”；保存成功后熄灭。"""
+        self.chk_triple_space.toggled.connect(lambda _: self._mark_dirty())
+        self.slider_interval.valueChanged.connect(lambda _: self._mark_dirty())
+        self.spn_interval.valueChanged.connect(lambda _: self._mark_dirty())
+        self.cmb_engine.currentIndexChanged.connect(lambda _: self._mark_dirty())
+        self.cmb_preset.currentIndexChanged.connect(lambda _: self._mark_dirty())
+        self.cmb_prompt_tpl.currentIndexChanged.connect(lambda _: self._mark_dirty())
+        self.txt_url.textChanged.connect(lambda _: self._mark_dirty())
+        self.txt_key.textChanged.connect(lambda _: self._mark_dirty())
+        self.txt_model.textChanged.connect(lambda _: self._mark_dirty())
+        self.txt_prompt.textChanged.connect(lambda: self._mark_dirty())
+
+    def _set_update_dot(self, visible: bool):
+        """关于项右上角的琥珀小圆点：只在检查到新版后出现，
+        平时不亮——不做开机自动检查时，不知道有没有新版就不能无故亮点。"""
+        item = self.nav_list.item(3)
+        if visible:
+            pixmap = QPixmap(16, 16)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setBrush(QColor(theme.ACCENT))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(4, 4, 8, 8)
+            painter.end()
+            item.setIcon(QIcon(pixmap))
+        else:
+            item.setIcon(QIcon())
+
+    # ---------------- 分区：触发方式 ----------------
     def _build_trigger_tab(self) -> QWidget:
         container = QWidget()
         l = QVBoxLayout(container)
@@ -482,17 +602,17 @@ class SettingsWindow(QWidget):
 
         l.addWidget(card)
 
-        # 机制提示卡片
+        # 机制提示：V2 不再是黄色卡片，改成一行素色脚注。
         tip_card = QFrame()
         tip_card.setProperty("class", "CardFrame")
-        tip_card.setStyleSheet(f"background-color: {theme.WARNING_BG}; border-color: {theme.WARNING_BORDER};")
+        tip_card.setStyleSheet("background: transparent; border: none;")
         t_l = QVBoxLayout(tip_card)
-        lbl_tip_title = QLabel("💡 贴心使用提示")
-        lbl_tip_title.setStyleSheet(f"font-weight: bold; color: {theme.WARNING_TITLE}; font-size: 13px;")
+        lbl_tip_title = QLabel("贴心使用提示")
+        lbl_tip_title.setStyleSheet(f"font-weight: 600; color: {theme.WARM_GRAY}; font-size: 12px;")
         t_l.addWidget(lbl_tip_title)
 
         lbl_tip_content = QLabel("1. 支持两种触发模式：已手动划选文本时，连按 3 次空格直接转译选中文本；光标在行尾时，自动捕捉并替换光标前的中文片段。\n2. 转译过程中右下角伴有呼吸气泡通知，不抢占当前焦点，不打断您的打字心流。")
-        lbl_tip_content.setStyleSheet(f"color: {theme.WARNING_TEXT}; font-size: 12px; line-height: 1.5;")
+        lbl_tip_content.setStyleSheet(f"color: {theme.WARM_GRAY}; font-size: 12px; line-height: 1.6;")
         lbl_tip_content.setWordWrap(True)
         t_l.addWidget(lbl_tip_content)
 
@@ -500,13 +620,11 @@ class SettingsWindow(QWidget):
         l.addStretch()
         return container
 
-    # ---------------- 选项卡 2: 翻译引擎 ----------------
+    # ---------------- 分区：翻译引擎 ----------------
+    # V2：不再包一层自己的 QScrollArea（外层已经是单页滚动，嵌套滚动
+    # 会抢滚轮、压高度），直接返回内容容器；分区标题由外层统一加，
+    # 这里不再重复放一个“选择转译通道模式”标题。
     def _build_engine_tab(self) -> QWidget:
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
-
         container = QWidget()
         l = QVBoxLayout(container)
         l.setContentsMargins(24, 20, 24, 20)
@@ -517,10 +635,6 @@ class SettingsWindow(QWidget):
         card_sel.setProperty("class", "CardFrame")
         cs_l = QVBoxLayout(card_sel)
         cs_l.setSpacing(10)
-
-        lbl_eng_title = QLabel("选择转译通道模式")
-        lbl_eng_title.setProperty("class", "SectionTitle")
-        cs_l.addWidget(lbl_eng_title)
 
         self.cmb_engine = QComboBox()
         setup_modern_combobox(self.cmb_engine)
@@ -602,16 +716,12 @@ class SettingsWindow(QWidget):
         l.addWidget(self.card_llm)
         l.addStretch()
 
-        scroll.setWidget(container)
-        return scroll
+        return container
 
-    # ---------------- 选项卡 3: 全局热键 ----------------
+    # ---------------- 分区：全局热键 ----------------
+    # V2：同引擎分区，不再包自己的 QScrollArea；行内标题不重复放，
+    # 录制说明移到卡片底部原样保留。
     def _build_hotkeys_tab(self) -> QWidget:
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
-
         container = QWidget()
         l = QVBoxLayout(container)
         l.setContentsMargins(24, 20, 24, 20)
@@ -622,8 +732,8 @@ class SettingsWindow(QWidget):
         c_layout = QVBoxLayout(card)
         c_layout.setSpacing(12)
 
-        lbl_t = QLabel("全局热键（点【点击录制】可修改组合键，保存后立即生效）")
-        lbl_t.setProperty("class", "SectionTitle")
+        lbl_t = QLabel("点【点击录制】可修改组合键，保存后立即生效")
+        lbl_t.setStyleSheet(f"color: {theme.WARM_GRAY}; font-size: 12px;")
         c_layout.addWidget(lbl_t)
 
         # 待保存的组合键：录制时先改这里，点底部保存才写 config.json。
@@ -646,8 +756,9 @@ class SettingsWindow(QWidget):
         ]
 
         for action, key_text, name, desc in rows:
+            # V2：行不再是浅灰小卡片，改成透明行 + 底部一根细分隔线。
             row = QFrame()
-            row.setStyleSheet(f"background-color: {theme.SURFACE_MUTED}; border: 1px solid {theme.SURFACE_GRAY}; border-radius: 8px; padding: 10px 12px;")
+            row.setStyleSheet(f"background: transparent; border: none; border-bottom: 1px solid {theme.HAIRLINE}; padding: 10px 2px;")
             r_l = QVBoxLayout(row)
             r_l.setContentsMargins(10, 8, 10, 8)
             r_l.setSpacing(6)
@@ -669,8 +780,9 @@ class SettingsWindow(QWidget):
                 h_top.addWidget(btn_record)
 
             badge_text = self._hotkey_values[action] if action is not None else key_text
+            # V2：组合键徽章不再是琥珀药丸，改成浅灰底等宽文字。
             lbl_badge = QLabel(badge_text)
-            lbl_badge.setStyleSheet(f"background: {theme.ACCENT_SOFT_BG}; color: {theme.ACCENT}; border: 1px solid {theme.ACCENT_SOFT_BORDER}; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: {theme.FONT_MONO};")
+            lbl_badge.setStyleSheet(f"background: {theme.INPUT_FILL}; color: {theme.TEXT_PRIMARY}; font-weight: 600; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: {theme.FONT_MONO};")
             if action is not None:
                 self._hotkey_badges[action] = lbl_badge
             h_top.addWidget(lbl_badge)
@@ -706,8 +818,7 @@ class SettingsWindow(QWidget):
         l.addWidget(card)
         l.addStretch()
 
-        scroll.setWidget(container)
-        return scroll
+        return container
 
     # ---------------- 热键录制 ----------------
     @staticmethod
@@ -752,6 +863,7 @@ class SettingsWindow(QWidget):
         self._hotkey_values = dict(DEFAULT_HOTKEYS)
         self._refresh_hotkey_rows()
         self.lbl_hotkey_status.setText("已恢复默认组合键，点底部【保存并应用】后生效。")
+        self._mark_dirty()
 
     def _refresh_hotkey_rows(self):
         for action, badge in self._hotkey_badges.items():
@@ -802,9 +914,10 @@ class SettingsWindow(QWidget):
         self._hotkey_badges[action].setText(combo)
         self._finish_recording()
         self.lbl_hotkey_status.setText(f"已录制【{ACTION_NAMES[action]}】：{combo}，点底部【保存并应用】后生效。")
+        self._mark_dirty()
         return True
 
-    # ---------------- 选项卡 4: 关于与状态 ----------------
+    # ---------------- 分区：关于与状态 ----------------
     def _build_about_tab(self) -> QWidget:
         container = QWidget()
         l = QVBoxLayout(container)
@@ -908,6 +1021,7 @@ class SettingsWindow(QWidget):
         remote = release.get("version", "")
         if not updater.is_newer(remote, local):
             self.lbl_update_status.setText(f"已是最新版本（{local}）。")
+            self._set_update_dot(False)
             return
         asset = updater.select_asset(release, get_channel())
         if asset is None:
@@ -915,6 +1029,7 @@ class SettingsWindow(QWidget):
                 f"发现新版本 {remote}，但没有当前平台的安装包。"
             )
             return
+        self._set_update_dot(True)
         notes = (release.get("body") or "").strip()
         if len(notes) > 500:
             notes = notes[:500] + "…"
@@ -1095,6 +1210,7 @@ class SettingsWindow(QWidget):
         self.config_changed.emit(new_cfg)
         if hasattr(self, "btn_go_main"):
             self.btn_go_main.setText(f"🖥️ 打开主工作台 ({new_cfg['hotkeys']['workbench']})")
+        self.lbl_dirty.setVisible(False)
         self.lbl_status.setText("✓ 配置已保存并实时生效")
         QMessageBox.information(self, "保存成功", "所有偏好配置已成功保存并立即生效！")
         self.hide()
