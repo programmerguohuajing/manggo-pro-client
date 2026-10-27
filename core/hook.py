@@ -132,39 +132,25 @@ class GlobalKeyboardHook:
 
                 # 5. 核心 Pro 特性: 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
                 if vk_code == VK_SPACE and not alt_down and not ctrl_down:
-                    if self.last_key_was_char:
-                        # 选词上屏空格：输入法刚刚处理了拼音字母(A-Z)或相关选词，该空格被输入法拦截用于确定候选词
-                        # 目标窗口中此时并未插入实体空格字符，因此不可作为 3 次连续空格的起始计数
-                        _log("[HOOK] IME Candidate select Space ignored")
-                        self.last_key_was_char = False
-                        self.space_count = 0
-                        self.last_space_time = 0.0
+                    delta = now - self.last_space_time if self.last_space_time > 0 else 0
+                    if self.last_space_time > 0 and delta <= self.max_interval:
+                        self.space_count += 1
                     else:
-                        delta = now - self.last_space_time if self.last_space_time > 0 else 0
-                        if self.last_space_time > 0 and delta <= self.max_interval:
-                            self.space_count += 1
-                        else:
-                            self.space_count = 1
-                        self.last_space_time = now
-                        _log(f"[HOOK] Real Space pressed! space_count={self.space_count}, delta={delta:.3f}s, max_inv={self.max_interval}")
+                        self.space_count = 1
+                    self.last_space_time = now
+                    _log(f"[HOOK] Space pressed! space_count={self.space_count}, delta={delta:.3f}s, max_inv={self.max_interval}")
 
-                        if self.space_count >= 3:
-                            _log(">>> [HOOK] TRIPLE SPACE TRIGGERED! Calling replacer... <<<")
-                            self.space_count = 0
-                            self.last_space_time = 0.0
-                            if self.on_triple_space:
-                                threading.Thread(target=self.on_triple_space, daemon=True).start()
-                elif (0x41 <= vk_code <= 0x5A) or vk_code == 0xE5:
-                    # 用户正在输入拼音字母 (A-Z) 或输入法正在组合字符 (0xE5)
-                    self.last_key_was_char = True
-                    if self.space_count > 0:
+                    if self.space_count >= 3:
+                        _log(">>> [HOOK] TRIPLE SPACE TRIGGERED! Calling replacer... <<<")
                         self.space_count = 0
                         self.last_space_time = 0.0
+                        if self.on_triple_space:
+                            threading.Thread(target=self.on_triple_space, daemon=True).start()
                 elif vk_code not in (
                     0x10, 0x11, 0x12, 0x5B, 0x5C, # Shift, Ctrl, Alt, Win
-                    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 # L/R Shift, Ctrl, Alt
+                    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, # L/R Shift, Ctrl, Alt
+                    0xE5 # VK_PROCESSKEY
                 ):
-                    self.last_key_was_char = False
                     if self.space_count > 0:
                         _log(f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
                     self.space_count = 0

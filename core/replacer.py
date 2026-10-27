@@ -212,11 +212,9 @@ class InPlaceReplacer:
             user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
             _log(f"Triggered! Foreground: '{title_buf.value}' (class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value})")
 
-            # 1. 微延时确保前台焦点应用完全接收按键，并强制释放可能的修饰键
+            # 1. 微延时确保前台焦点应用完全接收按键，并彻底释放所有修饰键
             time.sleep(0.04)
-            _send_key(VK_MENU, is_up=True)
-            _send_key(VK_CONTROL, is_up=True)
-            _send_key(VK_SHIFT, is_up=True)
+            _release_modifiers()
             time.sleep(0.02)
 
             # 备份用户剪贴板
