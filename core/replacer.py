@@ -207,8 +207,12 @@ class InPlaceReplacer:
             user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
             _log(f"Triggered! Foreground: '{title_buf.value}' (class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value})")
 
-            # 1. 微延时确保前台焦点应用完全接收并落入第 3 个空格
-            time.sleep(0.05)
+            # 1. 微延时确保前台焦点应用完全接收并落入第 3 个空格，并强制释放可能的修饰键
+            time.sleep(0.04)
+            _send_key(VK_MENU, is_up=True)
+            _send_key(VK_CONTROL, is_up=True)
+            _send_key(VK_SHIFT, is_up=True)
+            time.sleep(0.02)
 
             # 2. 消除刚刚输入的 3 个空格
             _press_key(VK_BACK, times=3, delay=0.025)

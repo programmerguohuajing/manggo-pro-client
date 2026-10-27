@@ -23,7 +23,7 @@ import win32api
 import winerror
 
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _safe_paste, VK_MENU
 from core.hook import GlobalKeyboardHook
 from core.ocr import ocr_engine
 from core.database import db
@@ -139,7 +139,10 @@ class AppCoordinator(QObject):
         self.notify_signal.emit(status, message)
 
     def _on_hotkey_selection(self):
-        # 划词翻译：安全模拟 Ctrl+C 读取选区
+        # 划词翻译：首先强制将 Alt/Ctrl 物理修饰键置为抬起状态，防止发送的 Ctrl+C 被操作系统或 Claude 识别为 Alt+Ctrl+C
+        _send_key(VK_MENU, is_up=True)
+        time.sleep(0.06)
+
         original_clip = ""
         try:
             original_clip = pyperclip.paste()
@@ -147,23 +150,20 @@ class AppCoordinator(QObject):
             pass
 
         sentinel = f"__MANGGO_SEL_{time.time()}__"
-        pyperclip.copy(sentinel)
+        _safe_copy(sentinel)
         time.sleep(0.02)
         _send_ctrl_c()
-        time.sleep(0.06)
+        time.sleep(0.08)
 
-        captured = pyperclip.paste()
+        captured = _safe_paste(timeout=0.45, ignore_val=sentinel)
         if captured and captured != sentinel:
             self.selection_translate_signal.emit(captured.strip())
         else:
             self.notify_signal.emit("failed", "未检测到鼠标选中文本")
 
         # 延迟恢复剪贴板
-        time.sleep(0.4)
-        try:
-            pyperclip.copy(original_clip)
-        except Exception:
-            pass
+        time.sleep(0.5)
+        _safe_copy(original_clip)
 
     @Slot(str)
     def _do_selection_translate(self, text: str):
@@ -210,6 +210,16 @@ class AppCoordinator(QObject):
         self.app.quit()
 
 def main():
+    def _uncaught(exc_type, exc_val, exc_tb):
+        import traceback
+        err = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_app.log"), "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%H:%M:%S')}] UNCAUGHT EXCEPTION:\n{err}\n")
+        except Exception:
+            pass
+    sys.excepthook = _uncaught
+
     # 会话级互斥体，防止重复启动冲突
     mutex = win32event.CreateMutex(None, False, "ManggoProClient_SingleInstance_Mutex")
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:

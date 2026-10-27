@@ -91,34 +91,38 @@ class GlobalKeyboardHook:
 
             if is_down:
                 now = time.time()
-                alt_down = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+                # 检查 Alt 状态：结合 flags 的 LLKHF_ALTDOWN (0x20) 以及 GetAsyncKeyState 双重校验
+                alt_down = bool((flags & 0x20) or (user32.GetAsyncKeyState(VK_MENU) & 0x8000))
                 ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
                 shift_down = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
 
+                # 全量记录键盘击键日志便于诊断
+                _log(f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
+
                 # 1. 快捷键: Alt + Q (划词翻译)
                 if alt_down and vk_code == VK_Q:
-                    _log("Hotkey Alt+Q triggered")
+                    _log(">>> Hotkey Alt+Q triggered! <<<")
                     if self.on_selection_translate:
                         threading.Thread(target=self.on_selection_translate, daemon=True).start()
                     return 1
 
                 # 2. 快捷键: Alt + W (截图 OCR 翻译)
                 if alt_down and vk_code == VK_W:
-                    _log("Hotkey Alt+W triggered")
+                    _log(">>> Hotkey Alt+W triggered! <<<")
                     if self.on_screenshot_translate:
                         threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
                     return 1
 
                 # 3. 快捷键: Alt + M (呼出桌面工作台)
                 if alt_down and vk_code == VK_M:
-                    _log("Hotkey Alt+M triggered")
+                    _log(">>> Hotkey Alt+M triggered! <<<")
                     if self.on_open_main:
                         threading.Thread(target=self.on_open_main, daemon=True).start()
                     return 1
 
                 # 4. 快捷键: Alt + Space (语音听写输入)
                 if alt_down and vk_code == VK_SPACE:
-                    _log("Hotkey Alt+Space triggered")
+                    _log(">>> Hotkey Alt+Space triggered! <<<")
                     if self.on_voice_input:
                         threading.Thread(target=self.on_voice_input, daemon=True).start()
                     return 1
