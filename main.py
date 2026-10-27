@@ -185,9 +185,14 @@ class AppCoordinator(QObject):
         old_seq = user32.GetClipboardSequenceNumber()
         _send_ctrl_c()
 
+        # 只认序号变化后的剪贴板：Ctrl+C 没让剪贴板变化，说明这次
+        # 根本没复制到选中文字。绝不能兜底读当前剪贴板——那是旧内容
+        # （比如之前复制过的 "Test"），会被当成选中文字翻译出来，
+        # 正是本次“译的不是选中文字”的根因。抓不到就老实报错，
+        # 让失败可诊断，而不是拿旧剪贴板冒充成功。
         captured = ""
         start = time.time()
-        while time.time() - start < 0.4:
+        while time.time() - start < 0.8:
             if user32.GetClipboardSequenceNumber() != old_seq:
                 try:
                     captured = pyperclip.paste().strip()
@@ -196,20 +201,11 @@ class AppCoordinator(QObject):
                 break
             time.sleep(0.02)
 
-        # 兜底读取当前剪贴板
-        if not captured:
-            try:
-                curr = pyperclip.paste().strip()
-                if curr:
-                    captured = curr
-            except Exception:
-                pass
-
         if captured:
             _log_info("APP", f"[SELECTION] Captured: {repr(captured[:30])}")
             self.selection_translate_signal.emit(captured)
         else:
-            _log_info("APP", "[SELECTION] Failed: No selection text captured")
+            _log_info("APP", "[SELECTION] Failed: clipboard unchanged after Ctrl+C")
             self.notify_signal.emit("failed", "未检测到鼠标选中文本")
 
     @Slot(str)
