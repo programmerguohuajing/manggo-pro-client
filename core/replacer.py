@@ -4,11 +4,21 @@
 """
 import time
 import re
+import os
 import threading
 import ctypes
 from ctypes import wintypes
 from typing import Callable, Optional
 import pyperclip
+
+LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log")
+
+def _log(msg: str):
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}.{int(time.time()*1000)%1000:03d}] [REPLACER] {msg}\n")
+    except Exception:
+        pass
 
 # Windows 虚拟键码常量
 VK_BACK = 0x08
@@ -70,6 +80,8 @@ class INPUT(ctypes.Structure):
     ]
 
 user32 = ctypes.windll.user32
+user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.SendInput.restype = wintypes.UINT
 
 def _send_key(vk: int, is_up: bool = False):
     """
@@ -185,6 +197,16 @@ class InPlaceReplacer:
     def _do_replace_flow(self):
         self.is_busy = True
         try:
+            # 获取当前前台窗口信息，用于精准诊断
+            fg = user32.GetForegroundWindow()
+            title_buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(fg, title_buf, 512)
+            cls_buf = ctypes.create_unicode_buffer(512)
+            user32.GetClassNameW(fg, cls_buf, 512)
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+            _log(f"Triggered! Foreground: '{title_buf.value}' (class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value})")
+
             # 1. 微延时确保前台焦点应用完全接收并落入第 3 个空格
             time.sleep(0.05)
 
@@ -192,6 +214,7 @@ class InPlaceReplacer:
             _press_key(VK_BACK, times=3, delay=0.025)
             # 留出时延让 Chromium/Electron/ProseMirror DOM 树重新排版
             time.sleep(0.06)
+            _log("Sent 3 Backspaces to clear spaces")
 
             # 备份用户剪贴板
             original_clipboard = ""
@@ -207,39 +230,34 @@ class InPlaceReplacer:
 
             # 策略一：首先尝试行内向前选区 (Shift + Home)
             _send_shift_home()
-            time.sleep(0.07)  # 留出充足时间让 Blink/Electron Selection 状态跨进程同步
+            time.sleep(0.08)  # 留出充足时间让 Blink/Electron Selection 状态跨进程同步
             _send_ctrl_c()
-            time.sleep(0.06)
+            time.sleep(0.08)
 
-            captured = _safe_paste(timeout=0.35, ignore_val=token)
+            captured = _safe_paste(timeout=0.45, ignore_val=token)
+            _log(f"Strategy 1 (Shift+Home) captured: {repr(captured)}")
 
-            # 策略二：如果 Shift + Home 没有提取到中文（例如 Claude/Web 等富文本多行或者段落内换行容器），
-            # 依次尝试 Ctrl + Shift + Home 向前全选，或 Ctrl + A 全选当前输入框内容
+            # 策略二：如果 Shift + Home 没有提取到中文（例如 Claude 多行富文本容器），
+            # 尝试 Ctrl + Shift + Home 向前全选当前输入框草稿
             if not captured or not self.contains_chinese(captured):
                 _send_ctrl_shift_home()
-                time.sleep(0.07)
+                time.sleep(0.08)
                 _send_ctrl_c()
-                time.sleep(0.06)
-                captured_para = _safe_paste(timeout=0.35, ignore_val=token)
-                if captured_para and self.contains_chinese(captured_para):
+                time.sleep(0.08)
+                captured_para = _safe_paste(timeout=0.45, ignore_val=token)
+                _log(f"Strategy 2 (Ctrl+Shift+Home) captured: {repr(captured_para)}")
+                if captured_para and self.contains_chinese(captured_para) and len(captured_para) < 2000:
                     captured = captured_para
-                else:
-                    # 尝试 Ctrl + A (针对 Claude 纯输入气泡，全选当前草稿)
-                    _send_ctrl_a()
-                    time.sleep(0.07)
-                    _send_ctrl_c()
-                    time.sleep(0.06)
-                    captured_all = _safe_paste(timeout=0.35, ignore_val=token)
-                    if captured_all and self.contains_chinese(captured_all):
-                        captured = captured_all
 
             clean_text = captured.strip() if captured else ""
+            _log(f"Final clean_text: {repr(clean_text)}, has_chinese={self.contains_chinese(clean_text)}")
 
             # 3. 校验是否需要翻译
             if not clean_text or not self.contains_chinese(clean_text):
                 # 未选中或不含中文，取消选中状态（按下扩展键 Right 将光标移回末尾）
                 _press_key(VK_RIGHT)
                 _safe_copy(original_clipboard)
+                _log("Aborted: clean_text empty or contains no Chinese")
                 if self.notify_callback:
                     if clean_text:
                         self.notify_callback("info", f"未包含中文: {clean_text[:12]}")
@@ -251,19 +269,23 @@ class InPlaceReplacer:
                 self.notify_callback("translating", f"正在转译: {clean_text[:15]}...")
 
             # 4. 调用翻译
+            _log(f"Translating text: {repr(clean_text)}")
             translated_en = self.translate_func(clean_text)
+            _log(f"Translated result: {repr(translated_en)}")
 
             if not translated_en or translated_en == clean_text:
                 _press_key(VK_RIGHT)
                 _safe_copy(original_clipboard)
+                _log("Aborted: translation returned empty or identical text")
                 if self.notify_callback:
                     self.notify_callback("failed", "转译未得到有效结果")
                 return
 
             # 5. 将英文写入剪贴板并通过就地粘贴替换已选中文本
             _safe_copy(translated_en)
-            time.sleep(0.04)
+            time.sleep(0.05)
             _send_ctrl_v()
+            _log("Sent Ctrl+V to paste English translation")
 
             if self.notify_callback:
                 self.notify_callback("success", f"已转译为英文: {translated_en[:20]}...")
@@ -271,8 +293,10 @@ class InPlaceReplacer:
             # 延迟 0.6 秒确保 Chromium 等重型富文本宿主完全消费剪贴板后，再恢复用户原剪贴板
             time.sleep(0.6)
             _safe_copy(original_clipboard)
+            _log("Restored original clipboard")
 
         except Exception as e:
+            _log(f"Exception during replace flow: {e}")
             if self.notify_callback:
                 self.notify_callback("error", f"转译异常: {e}")
         finally:

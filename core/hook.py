@@ -10,11 +10,21 @@
 import ctypes
 from ctypes import wintypes
 import time
+import os
 import threading
 from typing import Callable, Optional
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+
+LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "debug_app.log")
+
+def _log(msg: str):
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}.{int(time.time()*1000)%1000:03d}] {msg}\n")
+    except Exception:
+        pass
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -72,48 +82,59 @@ class GlobalKeyboardHook:
     def _hook_callback(self, nCode, wParam, lParam):
         if nCode >= 0:
             vk_code = lParam.contents.vkCode
+            flags = lParam.contents.flags
             is_down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
+
+            # 过滤由我们自身 SendInput 注入的事件，避免循环干扰
+            if flags & 0x10:
+                return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 
             if is_down:
                 now = time.time()
-                # 硬件级实时查询修饰键状态，彻底避免 Alt+Tab 或窗口切出时 missed KEYUP 导致修饰键“死锁”
                 alt_down = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
                 ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
                 shift_down = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
 
-                # 1. 快捷键: Alt + Q (划词翻译) —— 绝不占用 Alt+D
+                # 1. 快捷键: Alt + Q (划词翻译)
                 if alt_down and vk_code == VK_Q:
+                    _log("Hotkey Alt+Q triggered")
                     if self.on_selection_translate:
                         threading.Thread(target=self.on_selection_translate, daemon=True).start()
                     return 1
 
-                # 2. 快捷键: Alt + W (截图 OCR 翻译) —— 绝不占用 Alt+X
+                # 2. 快捷键: Alt + W (截图 OCR 翻译)
                 if alt_down and vk_code == VK_W:
+                    _log("Hotkey Alt+W triggered")
                     if self.on_screenshot_translate:
                         threading.Thread(target=self.on_screenshot_translate, daemon=True).start()
                     return 1
 
-                # 3. 快捷键: Alt + M (呼出桌面工作台) —— 绝不占用 Alt+D
+                # 3. 快捷键: Alt + M (呼出桌面工作台)
                 if alt_down and vk_code == VK_M:
+                    _log("Hotkey Alt+M triggered")
                     if self.on_open_main:
                         threading.Thread(target=self.on_open_main, daemon=True).start()
                     return 1
 
                 # 4. 快捷键: Alt + Space (语音听写输入)
                 if alt_down and vk_code == VK_SPACE:
+                    _log("Hotkey Alt+Space triggered")
                     if self.on_voice_input:
                         threading.Thread(target=self.on_voice_input, daemon=True).start()
                     return 1
 
                 # 5. 核心 Pro 特性: 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
                 if vk_code == VK_SPACE and not alt_down and not ctrl_down:
-                    if self.last_space_time > 0 and (now - self.last_space_time) <= self.max_interval:
+                    delta = now - self.last_space_time if self.last_space_time > 0 else 0
+                    if self.last_space_time > 0 and delta <= self.max_interval:
                         self.space_count += 1
                     else:
                         self.space_count = 1
                     self.last_space_time = now
+                    _log(f"[HOOK] Space pressed! space_count={self.space_count}, delta={delta:.3f}s, max_inv={self.max_interval}")
 
                     if self.space_count >= 3:
+                        _log(">>> [HOOK] TRIPLE SPACE TRIGGERED! Calling replacer... <<<")
                         self.space_count = 0
                         self.last_space_time = 0.0
                         if self.on_triple_space:
@@ -123,7 +144,8 @@ class GlobalKeyboardHook:
                     0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, # L/R Shift, Ctrl, Alt
                     0xE5 # VK_PROCESSKEY (输入法正在合成汉字/选词，不打断空格计时)
                 ):
-                    # 按下了其他普通键，重置空格连击
+                    if self.space_count > 0:
+                        _log(f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
                     self.space_count = 0
                     self.last_space_time = 0.0
 
@@ -131,7 +153,6 @@ class GlobalKeyboardHook:
 
     def _run_hook_loop(self):
         self._hook_proc_ref = HOOKPROC(self._hook_callback)
-        # WH_KEYBOARD_LL 全局钩子要求 hMod 为 0 (NULL)
         self.hook_id = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL,
             self._hook_proc_ref,
@@ -139,7 +160,9 @@ class GlobalKeyboardHook:
             0
         )
         if not self.hook_id:
+            _log(f"SetWindowsHookExW failed with error: {kernel32.GetLastError()}")
             return
+        _log(f"Hook installed successfully: hook_id={self.hook_id}")
 
         msg = wintypes.MSG()
         while self._running:
@@ -152,6 +175,7 @@ class GlobalKeyboardHook:
         if self.hook_id:
             user32.UnhookWindowsHookEx(self.hook_id)
             self.hook_id = None
+        _log("Hook loop finished")
 
     def start(self):
         if self._running:
