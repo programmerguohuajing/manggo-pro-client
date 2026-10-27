@@ -30,8 +30,12 @@ CloseApplications=yes
 RestartApplications=no
 DisableWelcomePage=no
 
+; 语言：只留英文。Inno Setup 官方发行版不带简体中文语言文件
+; （ChineseSimplified.isl 属于官方仓库的 Unofficial 翻译），
+; runner 自带的 Inno Setup 6.7.1 里没有它，写上会直接编译失败
+; （2026-10-27 run 40472157707 实测）。向导英文不影响程序本身；
+; 如需中文向导，再把官方翻译文件钉版本随仓库带上。
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

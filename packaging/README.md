@@ -40,6 +40,7 @@ macOS 是两个独立包，不是 universal2 合并包：
 
 - Windows：双击 Setup，下一步装到 Program Files，开始菜单 + 桌面
   快捷方式，控制面板 -> 程序和功能可卸载。需要管理员权限。
+  安装向导是英文（runner 自带 Inno Setup 不含简体中文语言文件）。
 - macOS：打开 DMG，把 `ManggoProClient.app` 拖到 Applications 即装好，
   删掉 .app 即卸载。未签名（仓库里没有 Apple Developer 证书），
   首次打开请右键 .app -> 打开，点“打开”放行一次；之后正常双击即可。
