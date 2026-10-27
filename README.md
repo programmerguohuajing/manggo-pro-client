@@ -34,6 +34,29 @@
 
 ## 🚀 启动与使用
 
-在项目目录 [`D:\codex\manggo-pro-client`](file:///D:/codex/manggo-pro-client) 中：
-- **日常使用（后台静默运行，无黑框）**：双击运行 [`后台静默启动.vbs`](file:///D:/codex/manggo-pro-client/后台静默启动.vbs)
-- **调试排查（带控制台日志输出）**：双击运行 [`启动助手(调试控制台).bat`](file:///D:/codex/manggo-pro-client/启动助手(调试控制台).bat)
+### 方式一：便携包（推荐，不用装 Python）
+
+本地打包方法见 [`packaging/README.md`](packaging/README.md)（`pyinstaller manggo-pro-client.spec`），或在仓库 Actions 页下载对应平台的产物，解压即用：
+
+- **Windows**：双击 `ManggoProClient.exe`（窗口程序，无黑框）
+- **macOS**：打开 `ManggoProClient.app`，未签名，首次请右键 → 打开，放行一次
+- **Linux**：直接运行 `ManggoProClient` 文件
+
+### 方式二：源码运行（需要 Python 3.12）
+
+```bash
+pip install -r requirements.txt
+```
+
+- **日常使用（后台静默运行，无黑框）**：`pythonw main.py`
+- **调试排查（带控制台日志输出）**：`python main.py`
+- 程序会自动提权（管理员权限）并保证单实例；退出点托盘右键 → 退出
+
+### 日志与诊断
+
+- 托盘菜单 → 诊断控制台：可按级别过滤、复制、清空日志（不自动弹窗）
+- 程序目录旁的 `debug_app.log`：同样可直接打开查看
+
+### Windows 快捷脚本（注意路径）
+
+仓库根目录的 `后台静默启动.vbs`、`启动助手(调试控制台).bat`、`重启服务.bat` 仍可用，但里面写死了作者机器的 Python 路径（`C:\Users\A\...pythoncore-3.14-64`），换机器要先把路径改成你自己的 `pythonw.exe` / `python.exe` 再用；更稳妥是直接用上面 `pythonw main.py` / `python main.py` 的命令。
