@@ -56,7 +56,3 @@ pip install -r requirements.txt
 
 - 托盘菜单 → 诊断控制台：可按级别过滤、复制、清空日志（不自动弹窗）
 - 程序目录旁的 `debug_app.log`：同样可直接打开查看
-
-### Windows 快捷脚本（注意路径）
-
-仓库根目录的 `后台静默启动.vbs`、`启动助手(调试控制台).bat`、`重启服务.bat` 仍可用，但里面写死了作者机器的 Python 路径（`C:\Users\A\...pythoncore-3.14-64`），换机器要先把路径改成你自己的 `pythonw.exe` / `python.exe` 再用；更稳妥是直接用上面 `pythonw main.py` / `python main.py` 的命令。
