@@ -24,8 +24,13 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
+      # spec 里 upx=True，但 runner 默认没有 UPX 时它是空操作；装上才真压缩。
+      - name: Install UPX
+        run: choco install upx -y
       - name: Build with PyInstaller
         run: pyinstaller manggo-pro-client.spec
+      - name: Prune dead weight
+        run: python packaging/prune.py dist/ManggoProClient
       - name: Pack
         run: Compress-Archive -Path dist/ManggoProClient -DestinationPath ManggoProClient-Windows-x64.zip
       - uses: actions/upload-artifact@v4
@@ -64,9 +69,11 @@ jobs:
           echo "icns ready: $(ls -la assets/app.icns 2>/dev/null || echo MISSING)"
       - name: Build with PyInstaller
         run: pyinstaller manggo-pro-client.spec
+      - name: Prune dead weight
+        run: python packaging/prune.py dist/ManggoProClient.app
       - name: Pack
         run: |
-          cd dist && zip -r -y ../ManggoProClient-macOS-Intel.zip ManggoProClient.app
+          cd dist && zip -9 -r -y ../ManggoProClient-macOS-Intel.zip ManggoProClient.app
       - uses: actions/upload-artifact@v4
         with:
           name: ManggoProClient-macOS-Intel
@@ -103,9 +110,11 @@ jobs:
           echo "icns ready: $(ls -la assets/app.icns 2>/dev/null || echo MISSING)"
       - name: Build with PyInstaller
         run: pyinstaller manggo-pro-client.spec
+      - name: Prune dead weight
+        run: python packaging/prune.py dist/ManggoProClient.app
       - name: Pack
         run: |
-          cd dist && zip -r -y ../ManggoProClient-macOS-AppleSilicon.zip ManggoProClient.app
+          cd dist && zip -9 -r -y ../ManggoProClient-macOS-AppleSilicon.zip ManggoProClient.app
       - uses: actions/upload-artifact@v4
         with:
           name: ManggoProClient-macOS-AppleSilicon
@@ -130,8 +139,18 @@ jobs:
         run: pip install -r requirements-build.txt
       - name: Build with PyInstaller
         run: pyinstaller manggo-pro-client.spec
+      - name: Prune dead weight
+        run: python packaging/prune.py dist/ManggoProClient
+      # 冒烟：offscreen 跑 15 秒，能活着就是启动没被 prune 弄坏；
+      # 超时（124）算通过。只作信号，不阻塞产物上传。
+      - name: Smoke test (offscreen, non-blocking)
+        continue-on-error: true
+        run: |
+          cd dist/ManggoProClient
+          QT_QPA_PLATFORM=offscreen timeout 15 ./ManggoProClient; code=$?
+          if [ "$code" -eq 124 ]; then echo "smoke: still running after 15s, OK"; else echo "smoke: exited with $code"; exit $code; fi
       - name: Pack
-        run: tar -czf ManggoProClient-Linux-x64.tar.gz -C dist ManggoProClient
+        run: tar -I 'gzip -9' -cf ManggoProClient-Linux-x64.tar.gz -C dist ManggoProClient
       - uses: actions/upload-artifact@v4
         with:
           name: ManggoProClient-Linux-x64

@@ -51,6 +51,48 @@ pyinstaller manggo-pro-client.spec
 四路并行：Windows x64、macOS Intel、macOS Apple Silicon、Linux x64，
 产物在 Actions 页的 Artifacts 里保留 30 天。也可手动 Run workflow。
 
+## 体积：为什么 100+ MB，以及瘦了多少
+
+先说结论：100+ MB 不是代码多，是依赖重。Linux 包实测（解压后 547 MB，
+tar.gz 214 MB）的构成：
+
+| 块 | 解压后 | 说明 |
+| --- | --- | --- |
+| opencv（cv2 + opencv_python.libs） | 约 192 MB | RapidOCR 的依赖，含 ffmpeg 编解码和 Qt5 库 |
+| PySide6（Qt 库 + 插件 + 翻译） | 约 121 MB | 界面框架本身 |
+| onnxruntime | 约 63 MB | RapidOCR 推理引擎 |
+| numpy | 约 41 MB | cv2 / onnxruntime 都要它 |
+| libpython + 标准库 | 约 44 MB | Python 解释器本体 |
+| RapidOCR 模型 + 代码 | 约 16 MB | 中文检测 + 识别两个 .onnx 模型 |
+| Pillow / shapely / pyclipper / yaml 等 | 约 30 MB | 其余依赖 |
+
+已做的瘦身（工作流里 Build 之后自动跑 `packaging/prune.py`）：
+
+- `strip=True`：实测 `libpython3.12.so` 从 28.5 MB 压到 6.5 MB；
+  wheel 自带的 .so 本来就是 stripped，strip 后基本不变。
+- 删 Qt 死重：Quick / Qml / Pdf / Svg / VirtualKeyboard 库和对应插件、
+  全部 99 个 Qt 翻译文件（应用从未装 QTranslator，一个都不会被加载）、
+  qpdf/qsvg/qtga/qtiff/qwbmp/qwebp/qicns 图片插件、eglfs/linuxfb/vnc
+  等嵌入式平台后端。应用只 import QtCore/QtGui/QtWidgets，
+  ldd 确认 QtGui/QtWidgets 不链接这些库，删了不影响启动。
+- 依赖改 `PySide6-Essentials`：元包还会拉 WebEngine/Pdf/Addons，
+  Essentials 只含界面要用的模块。
+- Windows job 装 UPX（之前 spec 写了 upx=True 但 runner 没装 UPX，
+  等于空操作；Linux/macOS 上 PyInstaller 本来就禁用 UPX）。
+- 压缩级别拉满：mac 用 `zip -9`，Linux 用 `gzip -9`。
+
+刻意没动、也别再动的部分：opencv 的 ffmpeg/Qt5 库。ldd 证明
+cv2.abi3.so 启动时就直接链接它们，删了截图 OCR 会起不来；
+RapidOCR 声明的依赖就是完整版 opencv-python，换 headless 要
+--no-deps 手动钉依赖，省得不多、断得容易。
+
+所以这轮瘦身的目标是“去掉纯死重”，不是“压到几十 MB”：
+Qt + Python + numpy + onnxruntime + cv2 的底子就在那儿，
+不砍功能的话 100 MB 量级是下限。真想进 50 MB 以内，
+只能动结构：把截图 OCR 一整条线（cv2 + onnxruntime + RapidOCR + numpy，
+解压后约 310 MB）拆成首次使用时按需下载的插件，主包只剩界面 + 翻译——
+那是另一个决定，用户拍板了再做。
+
 ## 绝不打包的东西
 
 `history.sqlite3`（用户翻译历史）、`config.json`（可能含 API Key）、

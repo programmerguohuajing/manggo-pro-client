@@ -54,7 +54,19 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # 只 import QtCore/QtGui/QtWidgets；其余 Qt 模块与 tkinter/unittest
+    # 从不被引用，排除后不再被收进包。Qt 的 Quick/Qml/Pdf/Svg 等
+    # C++ 库不在 excludes 的管辖内，由 packaging/prune.py 在打包后删。
+    excludes=[
+        "tkinter",
+        "unittest",
+        "PySide6.QtQuick",
+        "PySide6.QtQml",
+        "PySide6.QtPdf",
+        "PySide6.QtSvg",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebEngineCore",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -69,7 +81,10 @@ exe = EXE(
     name="ManggoProClient",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    # strip 只在 Linux/macOS 生效：实测 libpython3.12.so 28.5 MB -> 6.5 MB，
+    # 其余 wheel 自带的 .so 本来就是 stripped，strip 后基本不变。
+    # Windows 上 strip 对 PE 无效，靠 UPX（工作流里装 UPX 后才生效）。
+    strip=True,
     upx=True,
     console=False,
     disable_windowed_traceback=False,
@@ -84,7 +99,7 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     name="ManggoProClient",
