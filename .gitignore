@@ -7,3 +7,9 @@ config.json
 *.log
 
 .app.pid
+
+# 历史数据库含真实翻译记录，绝不进仓库（2026-10-28 review 问题2）
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm

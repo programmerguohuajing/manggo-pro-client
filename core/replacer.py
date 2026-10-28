@@ -270,7 +270,7 @@ class InPlaceReplacer:
             user32.GetClassNameW(fg, cls_buf, 512)
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
-            _log(f"Triggered! Foreground: '{title_buf.value}' (class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value})")
+            _log(f"Triggered! Foreground: class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value}")
 
             # 1. 微延时确保前台焦点应用完全接收按键，并彻底释放所有修饰键
             time.sleep(0.04)
@@ -293,7 +293,7 @@ class InPlaceReplacer:
             _send_ctrl_c()
 
             captured = _wait_for_clipboard_change(old_seq, timeout=0.35)
-            _log(f"Strategy 1 (Shift+Home) captured: {repr(captured)}")
+            _log(f"Strategy 1 (Shift+Home) captured {len(captured) if captured else 0} chars")
 
             # 策略二：如果 Shift + Home 没有提取到中文（例如多行富文本容器），
             # 尝试 Ctrl + Shift + Home 向前全选当前输入框草稿
@@ -303,12 +303,12 @@ class InPlaceReplacer:
                 time.sleep(0.05)
                 _send_ctrl_c()
                 captured_para = _wait_for_clipboard_change(old_seq, timeout=0.35)
-                _log(f"Strategy 2 (Ctrl+Shift+Home) captured: {repr(captured_para)}")
+                _log(f"Strategy 2 (Ctrl+Shift+Home) captured {len(captured_para) if captured_para else 0} chars")
                 if captured_para and self.contains_chinese(captured_para) and len(captured_para) < 2000:
                     captured = captured_para
 
             clean_text = captured.strip() if captured else ""
-            _log(f"Final clean_text: {repr(clean_text)}, has_chinese={self.contains_chinese(clean_text)}")
+            _log(f"Final clean_text: {len(clean_text)} chars, has_chinese={self.contains_chinese(clean_text)}")
 
             # 2. 校验是否需要翻译
             if not clean_text or not self.contains_chinese(clean_text):
@@ -317,9 +317,9 @@ class InPlaceReplacer:
                 return
 
             # 3. 调用翻译 (保持前台焦点稳定，绝不弹出夺焦 Toast 弹窗)
-            _log(f"Translating text: {repr(clean_text)}")
+            _log(f"Translating text: {len(clean_text)} chars")
             translated_en = self.translate_func(clean_text)
-            _log(f"Translated result: {repr(translated_en)}")
+            _log(f"Translated result: {len(translated_en) if translated_en else 0} chars")
 
             if not translated_en or translated_en == clean_text:
                 _press_key(VK_RIGHT)

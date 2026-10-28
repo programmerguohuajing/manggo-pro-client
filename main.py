@@ -257,7 +257,7 @@ class AppCoordinator(QObject):
                 break
 
         if captured:
-            _log_info("APP", f"[SELECTION] Captured: {repr(captured[:30])}")
+            _log_info("APP", f"[SELECTION] Captured: {len(captured)} chars")
             self.selection_translate_signal.emit(captured)
         elif ever_changed:
             _log_info("APP", "[SELECTION] Failed: clipboard changed but paste empty/failed")

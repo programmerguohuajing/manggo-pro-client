@@ -137,8 +137,6 @@ class GlobalKeyboardHook:
                 ctrl_down = "Ctrl" in mods_down
                 shift_down = "Shift" in mods_down
 
-                # 全量记录键盘击键日志便于诊断
-                _log_debug("HOOK", f"Key: vk={vk_code:#x}, alt={alt_down}, ctrl={ctrl_down}, shift={shift_down}")
 
                 # 组合键：修饰键集合必须严格相等才触发，避免 Alt+Shift+Q
                 # 之类的按键同时触发 Alt+Q 的动作。
@@ -182,7 +180,7 @@ class GlobalKeyboardHook:
                     0xE5 # VK_PROCESSKEY
                 ):
                     if self.space_count > 0:
-                        _log_info("HOOK", f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
+                        _log_info("HOOK", f"[HOOK] Reset space_count (from {self.space_count})")
                     self.space_count = 0
                     self.last_space_time = 0.0
 
