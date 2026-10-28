@@ -2,11 +2,34 @@
 翻译引擎模块：支持内置免费通道与大模型 Pro 通道，支持中英双向互译与语言自动检测
 """
 from core.logging import error as _log_error
+import ipaddress
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Optional, Dict, Any
+
+
+class TranslationError(Exception):
+    """翻译失败：调用方必须把原因展示给用户，绝不能悄悄返回原文冒充译文。"""
+
+
+def _is_local_url(url: str) -> bool:
+    """本地大模型地址（Ollama 等）不需要 API Key：localhost、回环/私网 IP、.local。"""
+    try:
+        host = urllib.parse.urlparse(url or "").hostname or ""
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
 
 def is_predominantly_chinese(text: str) -> bool:
     zh_chars = len(re.findall(r'[\u4e00-\u9fa5]', text))
@@ -69,23 +92,31 @@ class FreeTranslator(BaseTranslator):
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 trans = res.get("responseData", {}).get("translatedText", "")
-                if trans and "MYMEMORY WARNING" not in trans:
+                # MYMEMORY 前缀的都是接口报错文本（含超限、WARNING 等），不是译文。
+                if trans and not trans.strip().upper().startswith("MYMEMORY"):
                     return trans.strip()
         except Exception:
             pass
 
-        return clean_text
+        # 全部通道失败时抛错，不返回原文：界面与历史绝不能把原文当译文。
+        raise TranslationError(
+            "免费通道全部失败（有道、Google、MyMemory 均无响应），请检查网络后重试"
+        )
 
 class LLMTranslator(BaseTranslator):
     """
     大模型 Pro 通道：支持 DeepSeek, 通义千问, OpenAI, 本地 Ollama 等
     """
-    def __init__(self, api_url: str, api_key: str, model_name: str, style_prompt: str = ""):
+    def __init__(self, api_url: str, api_key: str, model_name: str, style_prompt: str = "",
+                 allow_public_fallback: bool = False):
         self.api_url = api_url.rstrip("/")
         if not self.api_url.endswith("/chat/completions"):
             self.api_url = f"{self.api_url}/chat/completions"
         self.api_key = api_key
         self.model_name = model_name
+        # 公共通道回退默认关闭（2026-10-28 review 问题6）：大模型失败时
+        # 不再悄悄改用免费通道，否则 Key 错误时“测试连接”也会显示成功。
+        self.allow_public_fallback = allow_public_fallback
         self.style_prompt = style_prompt or "You are an expert bilingual translator. Translate the given text accurately and naturally. If the text is Chinese, translate it to English. If it is English, translate it to Chinese. Output ONLY the translation without any quotes or explanations."
 
     def translate(self, text: str, source_lang: str = "auto", target_lang: str = "auto") -> str:
@@ -107,14 +138,17 @@ class LLMTranslator(BaseTranslator):
             "temperature": 0.3
         }
 
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "ManggoProClient/1.0",
+        }
+        # 本地地址允许不填 Key：空 Key 时不发空 Bearer 头。
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(
             self.api_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-                "User-Agent": "ManggoProClient/1.0"
-            }
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -123,9 +157,21 @@ class LLMTranslator(BaseTranslator):
                 if (out.startswith('"') and out.endswith('"')) or (out.startswith("'") and out.endswith("'")):
                     out = out[1:-1].strip()
                 return out
+        except urllib.error.HTTPError as e:
+            # Key 错误是配置问题，绝不能回退掩盖：用户必须看到它。
+            if e.code in (401, 403):
+                raise TranslationError(
+                    f"大模型 API Key 无效或未授权（HTTP {e.code}），请检查密钥"
+                )
+            err = e
         except Exception as e:
-            _log_error("LLM", f"Error: {e}")
+            err = e
+        if self.allow_public_fallback:
+            _log_error("LLM", f"LLM failed ({err}), falling back to free channels (option on)")
             return FreeTranslator().translate(clean_text, source_lang, target_lang)
+        raise TranslationError(
+            f"大模型通道失败：{err}（公共通道回退未启用，可在设置中开启）"
+        )
 
 class TranslationManager:
     """
@@ -138,12 +184,15 @@ class TranslationManager:
 
     def _init_engine(self):
         engine_type = self.config.get("engine", "free")
-        if engine_type == "llm" and self.config.get("llm_api_key"):
+        if engine_type == "llm":
+            # 选了大模型就用大模型：Key 为空时本地地址直接跑（Ollama 不用 Key），
+            # 云端地址会在调用时报 401 显式错误——绝不再悄悄用免费通道冒充大模型。
             self.active_translator = LLMTranslator(
                 api_url=self.config.get("llm_api_url", "https://api.deepseek.com/v1"),
                 api_key=self.config.get("llm_api_key", ""),
                 model_name=self.config.get("llm_model", "deepseek-chat"),
-                style_prompt=self.config.get("llm_prompt", "")
+                style_prompt=self.config.get("llm_prompt", ""),
+                allow_public_fallback=bool(self.config.get("allow_public_fallback", False)),
             )
         else:
             self.active_translator = self.free_translator

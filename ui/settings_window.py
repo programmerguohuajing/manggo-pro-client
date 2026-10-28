@@ -90,7 +90,8 @@ DEFAULT_CONFIG = {
     "llm_api_url": "https://api.deepseek.com/v1",
     "llm_api_key": "",
     "llm_model": "deepseek-chat",
-    "llm_prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+    "llm_prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations.",
+    "allow_public_fallback": False,
 }
 
 # 常见 LLM 服务商快速预设
@@ -98,36 +99,48 @@ PRESETS = {
     "DeepSeek (官方)": {
         "url": "https://api.deepseek.com/v1",
         "model": "deepseek-chat",
-        "prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+        "prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations."
     },
     "DeepSeek-R1 (推理版)": {
         "url": "https://api.deepseek.com/v1",
         "model": "deepseek-reasoner",
-        "prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+        "prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations."
     },
     "通义千问 (DashScope)": {
         "url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-plus",
-        "prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+        "prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations."
     },
     "OpenAI (GPT-4o-mini)": {
         "url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
-        "prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+        "prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations."
     },
     "本地 Ollama (Qwen2.5)": {
         "url": "http://localhost:11434/v1",
         "model": "qwen2.5:7b",
-        "prompt": "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations."
+        "prompt": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations."
     }
 }
 
 PROMPT_TEMPLATES = {
-    "💼 职场商务 & 外企口语": "You are an expert bilingual business communicator. Translate the given Chinese text into natural, polite, and professional workplace English. Output ONLY the translated text.",
-    "🎓 学术论文 & 正式严谨": "You are an academic translation assistant. Translate the text into formal, precise academic English with rigorous terminology. Output ONLY the translation.",
-    "💬 社交日常 & 俚语口语": "You are a native English speaker. Translate the text into casual, authentic, and modern spoken English. Output ONLY the translation.",
-    "💻 极简代码注释 & 变量": "You are a software engineer. Translate the text into concise, professional English code comment or commit message format. Output ONLY the translated text."
+    "💼 职场商务 & 外企口语": "You are an expert bilingual business communicator. Translate the given text into natural, polite, and professional workplace language. Output ONLY the translated text.",
+    "🎓 学术论文 & 正式严谨": "You are an academic translation assistant. Translate the text into formal, precise academic language with rigorous terminology. Output ONLY the translation.",
+    "💬 社交日常 & 俚语口语": "You are a native speaker. Translate the text into casual, authentic, and modern spoken language. Output ONLY the translation.",
+    "💻 极简代码注释 & 变量": "You are a software engineer. Translate the text into concise, professional code comment or commit message format. Output ONLY the translated text."
 }
+
+# 2026-10-28：旧提示词把方向写死为“中文→英文”，与翻译器按输入自动
+# 追加的方向冲突（英文输入时自相矛盾）。已保存的旧文案（默认/预设/
+# 风格模板原文）精确匹配时迁移到中性版；用户自己改过的提示词一律不动。
+_PROMPT_MIGRATION = {
+    "You are a professional translator. Translate the given Chinese text directly into idiomatic, natural English. Output ONLY the English translation without quotes or explanations.": "You are a professional translator. Translate the given text accurately and naturally. Output ONLY the translation without quotes or explanations.",
+    "You are an expert bilingual business communicator. Translate the given Chinese text into natural, polite, and professional workplace English. Output ONLY the translated text.": "You are an expert bilingual business communicator. Translate the given text into natural, polite, and professional workplace language. Output ONLY the translated text.",
+    "You are an academic translation assistant. Translate the text into formal, precise academic English with rigorous terminology. Output ONLY the translation.": "You are an academic translation assistant. Translate the text into formal, precise academic language with rigorous terminology. Output ONLY the translation.",
+    "You are a native English speaker. Translate the text into casual, authentic, and modern spoken English. Output ONLY the translation.": "You are a native speaker. Translate the text into casual, authentic, and modern spoken language. Output ONLY the translation.",
+    "You are a software engineer. Translate the text into concise, professional English code comment or commit message format. Output ONLY the translated text.": "You are a software engineer. Translate the text into concise, professional code comment or commit message format. Output ONLY the translated text.",
+}
+
 
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
@@ -136,6 +149,9 @@ def load_config() -> dict:
                 data = json.load(f)
                 cfg = DEFAULT_CONFIG.copy()
                 cfg.update(data)
+                old_prompt = cfg.get("llm_prompt", "")
+                if old_prompt in _PROMPT_MIGRATION:
+                    cfg["llm_prompt"] = _PROMPT_MIGRATION[old_prompt]
                 return cfg
         except Exception:
             pass
@@ -856,6 +872,11 @@ class SettingsWindow(QWidget):
         self.txt_prompt.setFixedHeight(65)
         cl_layout.addWidget(self.txt_prompt)
 
+        self.chk_public_fallback = QCheckBox(
+            "大模型失败时回退到内置免费通道（默认关闭；开启后文本会发给公共翻译接口）"
+        )
+        cl_layout.addWidget(self.chk_public_fallback)
+
         l.addWidget(self.card_llm)
         l.addStretch()
 
@@ -1307,6 +1328,8 @@ class SettingsWindow(QWidget):
         self.txt_key.setText(self.config.get("llm_api_key", ""))
         self.txt_model.setText(self.config.get("llm_model", "deepseek-chat"))
         self.txt_prompt.setPlainText(self.config.get("llm_prompt", DEFAULT_CONFIG["llm_prompt"]))
+        if hasattr(self, "chk_public_fallback"):
+            self.chk_public_fallback.setChecked(bool(self.config.get("allow_public_fallback", False)))
 
         # 开机自启以任务计划实际状态为准（任务可能在设置外被删），
         # 查不到时退回配置文件里的值。
@@ -1328,7 +1351,8 @@ class SettingsWindow(QWidget):
             "llm_api_url": self.txt_url.text().strip(),
             "llm_api_key": self.txt_key.text().strip(),
             "llm_model": self.txt_model.text().strip(),
-            "llm_prompt": self.txt_prompt.toPlainText().strip()
+            "llm_prompt": self.txt_prompt.toPlainText().strip(),
+            "allow_public_fallback": self.chk_public_fallback.isChecked() if hasattr(self, "chk_public_fallback") else bool(self.config.get("allow_public_fallback", False)),
         }
 
     def _test_translation(self):
