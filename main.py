@@ -32,7 +32,9 @@ _stage("main-enter")
 
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
+_stage("import-pyside6-done")
 import pyperclip
+_stage("import-pyperclip-done")
 
 from core.platform import IS_WINDOWS
 
@@ -40,25 +42,35 @@ if IS_WINDOWS:
     import win32api
     import win32event
     import winerror
+_stage("import-win32-done")
 
 from core.hotkeys import normalize_hotkeys
+_stage("import-hotkeys-done")
 from core.translator import TranslationManager
+_stage("import-translator-done")
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_ESCAPE
+_stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook
+_stage("import-hook-done")
 from core.logging import error as _log_error, info as _log_info
+_stage("import-logging-done")
 from core.ocr import ocr_engine
+_stage("import-ocr-done")
 from core.database import db
+_stage("import-database-done")
 
 from ui.toast import FloatToast
 from ui.float_window import FloatResultWindow
 from ui.snipping import SnippingWidget
 from ui.voice_window import VoiceInputWindow
+_stage("import-ui-early-done")
 from ui.main_window import MainWindow
 from ui.history_window import HistoryWindow
 from ui.settings_window import SettingsWindow, load_config
 from ui.icons import get_app_icon
 from ui.tray import TrayManager
 from ui.console_window import ConsoleWindow
+_stage("import-ui-late-done")
 
 _stage("imports-done")
 
