@@ -1,7 +1,7 @@
 """
 翻译引擎模块：支持内置免费通道与大模型 Pro 通道，支持中英双向互译与语言自动检测
 """
-from core.logging import error as _log_error
+from core.logging import error as _log_error, debug as _log_debug
 import ipaddress
 import json
 import re
@@ -68,8 +68,8 @@ class FreeTranslator(BaseTranslator):
                 trans_arr = res.get("translation", [])
                 if trans_arr and trans_arr[0]:
                     return trans_arr[0].strip()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("TRANSLATOR", f"free channel Youdao failed: {e}")
 
         # 2. 尝试 Google 网页翻译中继接口
         try:
@@ -80,8 +80,8 @@ class FreeTranslator(BaseTranslator):
                 result = "".join([segment[0] for segment in data[0] if segment[0]])
                 if result:
                     return result.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("TRANSLATOR", f"free channel Google failed: {e}")
 
         # 3. 备选：MyMemory 免费公开接口
         try:
@@ -95,8 +95,8 @@ class FreeTranslator(BaseTranslator):
                 # MYMEMORY 前缀的都是接口报错文本（含超限、WARNING 等），不是译文。
                 if trans and not trans.strip().upper().startswith("MYMEMORY"):
                     return trans.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("TRANSLATOR", f"free channel MyMemory failed: {e}")
 
         # 全部通道失败时抛错，不返回原文：界面与历史绝不能把原文当译文。
         raise TranslationError(

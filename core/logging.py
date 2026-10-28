@@ -88,11 +88,13 @@ def log(level: str, module: str, message: str) -> None:
             with open(LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except Exception:
+            # 写日志文件本身失败：logger 不能再记自己的失败，否则递归，只能静默。
             pass
     if LEVELS[level] >= LEVELS["INFO"]:
         try:
             print(line, flush=True)
         except Exception:
+            # stdout 已关闭等：同上，logger 自身的失败无处可记。
             pass
 
 

@@ -5,7 +5,7 @@ Manggo Pro Client - 全功能桌面客户端入口 (100% 对标并升级原版 M
 2. 划词悬浮卡片翻译 (Alt+Q - 严格放行 Alt+D)
 3. 截图 OCR 离线文字提取与对照翻译 (Alt+W - 严格放行 Alt+X)
 4. 语音听写输入 / 实时语音转文字 (Alt+Space)
-5. 沉浸式双栏桌面翻译工作台 (Alt+Shift+D)
+5. 沉浸式双栏桌面翻译工作台 (Alt+M)
 6. 离线语音合成朗读 (SAPI TTS)
 7. 历史记录与生词本 (无缝同步原版数据)
 8. 现代化侧栏卡片式偏好设置中心 (双击系统托盘)
@@ -26,6 +26,7 @@ def _stage(msg: str):
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%H:%M:%S')}] pid={os.getpid()} {msg}\n")
     except Exception:
+        # 兜底调试日志写失败：它本身就是 fallback，失败时无处可记，只能静默。
         pass
 
 _stage("main-enter")
@@ -48,7 +49,7 @@ from core.hotkeys import normalize_hotkeys
 _stage("import-hotkeys-done")
 from core.translator import TranslationManager
 _stage("import-translator-done")
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
+from core.replacer import InPlaceReplacer, _send_ctrl_c_input, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
 from core.autostart import is_autostart_enabled, set_autostart_enabled
 from core.version import get_channel
 _stage("import-replacer-done")
@@ -98,8 +99,8 @@ def force_activate_window(win):
             hwnd = int(win.winId())
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             user32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_info("APP", f"bring window to front failed: {e}")
 
 class AppCoordinator(QObject):
     # 跨线程信号
@@ -135,13 +136,14 @@ class AppCoordinator(QObject):
         self.float_win = FloatResultWindow()
         self.snipping_widget = SnippingWidget()
         self.voice_win = VoiceInputWindow()
-        self.main_win = MainWindow(self.trans_mgr)
+        self.main_win = MainWindow(self.trans_mgr, hotkeys=self.config.get("hotkeys"))
         self.history_win = HistoryWindow()
         self.settings_win = SettingsWindow()
         self.console_win = ConsoleWindow()
         self.tray = TrayManager(
             initial_enabled=self.config.get("triple_space_enabled", True) and IS_WINDOWS,
             engine_label=self._engine_label(),
+            hotkeys=self.config.get("hotkeys"),
         )
 
         # 3. 信号绑定
@@ -308,7 +310,14 @@ class AppCoordinator(QObject):
 
     def _ocr_worker(self, pil_img):
         self.notify_signal.emit("translating", "正在进行 OCR 文字提取...")
-        text = ocr_engine.recognize_image(pil_img)
+        try:
+            text = ocr_engine.recognize_image(pil_img)
+        except Exception as e:
+            # OCR 引擎异常以前没接住，“正在识别”常驻提示永远不消失；
+            # 现在走 failed 终态，提示正常消失（2026-10-28 review 小问题）。
+            _log_error("OCR", f"recognize failed: {e}")
+            self.notify_signal.emit("failed", "OCR 识别失败，请重试")
+            return
         clean = text.strip()
         if not clean:
             self.notify_signal.emit("failed", "未能在截图区域中识别到有效文字")
@@ -357,7 +366,7 @@ class AppCoordinator(QObject):
     def _on_config_changed(self, new_cfg: dict):
         self.config = new_cfg
         self.trans_mgr.update_config(new_cfg)
-        self.hook.max_interval = new_cfg.get("max_interval_ms", 550) / 1000.0
+        self.hook.max_interval = new_cfg.get("max_interval_ms", 750) / 1000.0
         # 组合键改动即时生效：只重建判定表，不用重启钩子线程；
         # 钩子暂停中（托盘暂停）改的键，恢复时按新表工作。
         self.hook.update_hotkeys(new_cfg.get("hotkeys"))
@@ -370,17 +379,21 @@ class AppCoordinator(QObject):
                 want_auto = bool(new_cfg.get("auto_start", False))
                 if is_autostart_enabled() != want_auto and not set_autostart_enabled(want_auto):
                     self.notify_signal.emit("failed", "开机自启设置失败（需要管理员权限）")
-            except Exception:
-                pass
+            except Exception as e:
+                # is_autostart_enabled 本身抛错时，以前静默，用户的勾选白改了。
+                _log_error("AUTOSTART", f"auto_start apply failed: {e}")
+                self.notify_signal.emit("failed", "开机自启设置失败（需要管理员权限）")
         self.tray.set_engine_label(self._engine_label())
+        self.tray.set_hotkeys(new_cfg.get("hotkeys"))
+        self.main_win.set_hotkeys(new_cfg.get("hotkeys"))
 
     def quit_app(self):
         self.hook.stop()
         try:
             if os.path.exists(PID_FILE):
                 os.remove(PID_FILE)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_info("APP", f"pid file cleanup failed: {e}")
         # 退出兜底：3 秒后若进程还在，直接 os._exit(0)。
         # 正常退出时主线程走 sys.exit，跑不到 3 秒；事件循环卡住、
         # QThread 析构阻塞、或之前卡在提权里的残留实例等任何拖住
@@ -390,8 +403,8 @@ class AppCoordinator(QObject):
         threading.Thread(target=self._exit_watchdog, daemon=True).start()
         try:
             self.tray.tray_icon.hide()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_info("APP", f"tray hide on quit failed: {e}")
         self.app.quit()
 
     def _exit_watchdog(self):
@@ -461,8 +474,8 @@ def check_admin_elevation():
                     "Manggo Pro Client",
                     0x40,  # MB_ICONINFORMATION
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _log_error("APP", f"admin notice dialog failed: {e}")
             # 能走到这里的一定是源码运行（打包版非管理员上面已提前
             # 返回），只需把 main.py 路径当参数传给 python.exe。
             params = f'"{os.path.abspath(__file__)}"'
@@ -507,8 +520,9 @@ def main():
                 try:
                     with open(PID_FILE, "r") as f:
                         old_pid = int(f.read().strip())
-                except Exception:
-                    pass
+                except Exception as e:
+                    # PID 文件读不出：无法确认旧进程，接管逻辑会按“旧实例活着”拒绝重复。
+                    _log_info("APP", f"takeover: pid file unreadable ({e}), refusing duplicate")
             took_over = False
             if old_pid is not None and old_pid != os.getpid():
                 try:
@@ -536,8 +550,8 @@ def main():
                         "Manggo Pro Client",
                         0x30,  # MB_ICONWARNING
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_info("APP", f"takeover: duplicate warning dialog failed: {e}")
                 if mutex:
                     win32api.CloseHandle(mutex)
                 return
@@ -557,15 +571,21 @@ def main():
                     return
             except ProcessLookupError:
                 pass  # 旧 PID 已不存在，视为残留文件，继续启动并覆盖
-            except Exception:
-                pass
+            except PermissionError:
+                # 旧实例活着但当前用户无权发信号：按 Windows 分支的策略拒绝重复实例，
+                # 否则两个图标、钩子打架（以前这里落进通用 except，直接覆盖 PID 启动了重复实例）。
+                print("已有实例在运行（无权接管），退出。")
+                return
+            except Exception as e:
+                # 损坏的 PID 文件（int 解析失败等）也落在这里：视为残留文件覆盖，日志留痕。
+                _log_info("APP", f"pid file check failed ({e}), treating as stale")
 
     # 记录当前进程 PID
     try:
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
-    except Exception:
-        pass
+    except Exception as e:
+        _log_info("APP", f"pid file write failed: {e}")
     _stage("mutex-done")
 
     app = QApplication(sys.argv)
@@ -583,8 +603,8 @@ def main():
     try:
         if os.path.exists(PID_FILE):
             os.remove(PID_FILE)
-    except Exception:
-        pass
+    except Exception as e:
+        _log_info("APP", f"pid file cleanup failed: {e}")
 
     if mutex:
         win32api.CloseHandle(mutex)

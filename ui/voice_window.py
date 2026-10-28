@@ -46,6 +46,19 @@ class VoiceInputWindow(QWidget):
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self._update_pulse)
 
+        # 自动隐藏定时器（单例、可重入）：重复唤出时重新计时，不会被
+        # 上一次的 singleShot 提前隐藏。
+        self._auto_hide_timer = QTimer(self)
+        self._auto_hide_timer.setSingleShot(True)
+        self._auto_hide_timer.timeout.connect(self.hide)
+
+    def hideEvent(self, event):
+        # 卡片一隐藏就停掉呼吸动画：以前 hide 后计时器还在跑，
+        # “正在聆听”名义上永远不结束（2026-10-28 review 小问题）。
+        self.anim_timer.stop()
+        self.is_recording = False
+        super().hideEvent(event)
+
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -113,9 +126,9 @@ class VoiceInputWindow(QWidget):
             self.lbl_hint.setText("语音听写仅支持 Windows（Win+H）")
             self.show()
             self.raise_()
-            self.activateWindow()
-            from PySide6.QtCore import QTimer as _QTimer
-            _QTimer.singleShot(3000, self.hide)
+            # 不 activate：Win+H 是往当前焦点应用里听写，抢了焦点就
+            # 听写到自己卡片里去了（2026-10-28 review 小问题）。
+            self._auto_hide_timer.start(3000)
             return
         # 居中偏下显示
         screen = self.screen().geometry()
@@ -125,7 +138,7 @@ class VoiceInputWindow(QWidget):
 
         self.show()
         self.raise_()
-        self.activateWindow()
+        # 不 activate：同上，焦点必须留在用户原来的应用里。
 
         self.is_recording = True
         self.anim_timer.start(350)
@@ -133,8 +146,8 @@ class VoiceInputWindow(QWidget):
         # 异步调用 Win+H 调出听写
         threading.Thread(target=self._invoke_dictation, daemon=True).start()
 
-        # 5 秒后自动隐藏提示卡片（不影响正在听写的系统输入）
-        QTimer.singleShot(4500, self.hide)
+        # 4.5 秒后自动隐藏提示卡片（不影响正在听写的系统输入）
+        self._auto_hide_timer.start(4500)
 
     def _invoke_dictation(self):
         time.sleep(0.1)

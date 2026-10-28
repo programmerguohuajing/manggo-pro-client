@@ -23,6 +23,37 @@ from core.hotkeys import (
 
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
 kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
+if IS_WINDOWS:
+    # ctypes 默认 restype 是 c_int，64 位下 HWND/LRESULT 会被截断，
+    # GetMessageW 的 -1（出错）也会被 BOOL 化成 True 导致死循环；
+    # 这里按 Win32 签名写死（2026-10-28 review 小问题）。
+    # GetAsyncKeyState 也被 replacer.py 用，SHORT 是正确签名，两边都受益。
+    user32.SetWindowsHookExW.argtypes = [
+        ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD,
+    ]
+    user32.SetWindowsHookExW.restype = ctypes.c_void_p
+    user32.CallNextHookEx.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    user32.CallNextHookEx.restype = ctypes.c_void_p
+    user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+    user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+    user32.GetMessageW.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint,
+    ]
+    user32.GetMessageW.restype = ctypes.c_int
+    user32.TranslateMessage.argtypes = [ctypes.c_void_p]
+    user32.TranslateMessage.restype = wintypes.BOOL
+    user32.DispatchMessageW.argtypes = [ctypes.c_void_p]
+    user32.DispatchMessageW.restype = ctypes.c_void_p
+    user32.PostThreadMessageW.argtypes = [
+        wintypes.DWORD, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    user32.PostThreadMessageW.restype = wintypes.BOOL
+    user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    user32.GetAsyncKeyState.restype = wintypes.SHORT
+    kernel32.GetLastError.argtypes = []
+    kernel32.GetLastError.restype = wintypes.DWORD
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -200,16 +231,20 @@ class GlobalKeyboardHook:
 
     def _run_hook_loop(self):
         self._hook_proc_ref = HOOKPROC(self._hook_callback)
-        self.hook_id = user32.SetWindowsHookExW(
+        my_id = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL,
             self._hook_proc_ref,
             0,
             0
         )
-        if not self.hook_id:
+        if not my_id:
             _log_info("HOOK", f"SetWindowsHookExW failed with error: {kernel32.GetLastError()}")
+            # 安装失败必须把 _running 清掉，否则状态卡在“运行中”却没有钩子，
+            # 之后也无法重装、没有任何提示（2026-10-28 review 小问题）。
+            self._running = False
             return
-        _log_info("HOOK", f"Hook installed successfully: hook_id={self.hook_id}")
+        self.hook_id = my_id
+        _log_info("HOOK", f"Hook installed successfully: hook_id={my_id}")
 
         msg = wintypes.MSG()
         while self._running:
@@ -219,8 +254,10 @@ class GlobalKeyboardHook:
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))
 
-        if self.hook_id:
-            user32.UnhookWindowsHookEx(self.hook_id)
+        # 只卸自己装的钩子：如果 stop 后立刻 start 起了新钩子，旧线程收尾
+        # 绝不能把新钩子的 id 卸掉（2026-10-28 review 小问题）。
+        user32.UnhookWindowsHookEx(my_id)
+        if self.hook_id == my_id:
             self.hook_id = None
         _log_info("HOOK", "Hook loop finished")
 
@@ -231,6 +268,13 @@ class GlobalKeyboardHook:
             return
         if self._running:
             return
+        # 旧线程可能还在收尾：等它退干净再装新钩子，否则两个线程共用
+        # hook_id，旧线程收尾会卸掉新钩子；1 秒等不到就放弃重装。
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                _log_info("HOOK", "previous hook thread did not exit, start aborted")
+                return
         self._running = True
         self._thread = threading.Thread(target=self._run_hook_loop, daemon=True)
         self._thread.start()
@@ -241,3 +285,6 @@ class GlobalKeyboardHook:
         self._running = False
         if IS_WINDOWS and self._thread and self._thread.is_alive():
             user32.PostThreadMessageW(self._thread.ident, 0x0012, 0, 0)
+            # 有界等待旧线程收尾，让 start() 的“等旧线程”逻辑多数时候
+            # 不用等；等不到也不阻塞界面。
+            self._thread.join(timeout=1.0)

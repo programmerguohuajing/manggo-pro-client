@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import threading
 
-from core.logging import error as _log_error
+from core.logging import error as _log_error, debug as _log_debug
 from core.platform import IS_LINUX, IS_MAC, IS_WINDOWS
 
 if IS_WINDOWS:
@@ -41,12 +41,15 @@ class TTSPlayer:
                 finally:
                     try:
                         pythoncom.CoUninitialize()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log_debug("TTS", f"CoUninitialize failed: {e}")
                 return
             if IS_MAC:
+                # 以 - 开头的文本会被 say 当成选项；say 对 -- 的支持不确定，
+                # 前面补一个空格最稳妥（朗读时听不出来）。
+                say_text = text if not text.startswith("-") else " " + text
                 try:
-                    subprocess.run(["say", text], check=False)
+                    subprocess.run(["say", say_text], check=False)
                 except Exception as e:
                     _log_error("TTS", f"Error (say): {e}")
                 return
@@ -56,7 +59,8 @@ class TTSPlayer:
                     _log_error("TTS", "espeak not installed; install espeak-ng for speech on Linux")
                     return
                 try:
-                    subprocess.run([engine, text], check=False)
+                    # espeak 是标准 getopt 解析，-- 之后的一律按文本处理。
+                    subprocess.run([engine, "--", text], check=False)
                 except Exception as e:
                     _log_error("TTS", f"Error ({engine}): {e}")
                 return

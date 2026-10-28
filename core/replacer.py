@@ -11,7 +11,7 @@ from ctypes import wintypes
 from typing import Callable, Optional
 import pyperclip
 
-from core.logging import info as _log_info, warning as _log_warning
+from core.logging import info as _log_info, warning as _log_warning, debug as _log_debug
 from core.platform import IS_WINDOWS
 
 def _log(msg: str):
@@ -205,18 +205,15 @@ def _send_shift_home():
     user32.keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0)
     time.sleep(0.04)
 
-def _send_ctrl_shift_home():
+def _send_ctrl_a():
+    # 全选当前输入框（2026-10-28：文本域整框翻译用，替代旧的 Ctrl+Shift+Home）。
     _release_modifiers()
     time.sleep(0.02)
     user32.keybd_event(VK_CONTROL, 0x1D, 0, 0)
     time.sleep(0.015)
-    user32.keybd_event(VK_SHIFT, 0x2A, 0, 0)
-    time.sleep(0.02)
-    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY, 0)
+    user32.keybd_event(VK_A, 0x1E, 0, 0)
     time.sleep(0.04)
-    user32.keybd_event(VK_HOME, 0x47, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
-    time.sleep(0.015)
-    user32.keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(VK_A, 0x1E, KEYEVENTF_KEYUP, 0)
     time.sleep(0.015)
     user32.keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0)
     time.sleep(0.04)
@@ -229,8 +226,9 @@ def _wait_for_clipboard_change(old_seq: int, timeout: float = 0.35) -> str:
                 val = pyperclip.paste()
                 if val:
                     return val
-            except Exception:
-                pass
+            except Exception as e:
+                # 重试循环里的失败：记 debug，不刷屏，耗尽后返回 "" 即信号。
+                _log_debug("CLIPBOARD", f"paste retry failed: {e}")
         time.sleep(0.02)
     return ""
 
@@ -383,8 +381,8 @@ class InPlaceReplacer:
             try:
                 original_clipboard = pyperclip.paste()
                 have_backup = True
-            except Exception:
-                pass
+            except Exception as e:
+                _log_debug("CLIPBOARD", f"backup failed, restore will be skipped: {e}")
             last_flow_seq = user32.GetClipboardSequenceNumber()
 
             # 策略一：首先尝试行内向前选区 (Shift + Home)
@@ -398,17 +396,21 @@ class InPlaceReplacer:
             captured = _wait_for_clipboard_change(old_seq, timeout=0.35)
             _log(f"Strategy 1 (Shift+Home) captured {len(captured) if captured else 0} chars")
 
-            # 策略二：如果 Shift + Home 没有提取到中文（例如多行富文本容器），
-            # 尝试 Ctrl + Shift + Home 向前全选当前输入框草稿
-            if not captured or not self.contains_chinese(captured):
-                old_seq = user32.GetClipboardSequenceNumber()
-                _send_ctrl_shift_home()
-                time.sleep(0.05)
-                _send_ctrl_c()
-                captured_para = _wait_for_clipboard_change(old_seq, timeout=0.35)
-                _log(f"Strategy 2 (Ctrl+Shift+Home) captured {len(captured_para) if captured_para else 0} chars")
-                if captured_para and self.contains_chinese(captured_para) and len(captured_para) < 2000:
-                    captured = captured_para
+            # 策略二：整个输入框（Ctrl+A）。文本域（多行输入框）里光标只在一行，
+            # 只译光标行是 bug：用户要的是整个输入框的文本，不是光标行。
+            # Ctrl+A 在单行输入框里等于行选区，结果不变；多行输入框里拿到全文。
+            # 旧的 Ctrl+Shift+Home 只选到文档开头（光标后的文本丢了），已被替代。
+            # 守卫：必须含中文且 < 2000 字，否则退回行选区——长文档不整篇替换
+            # （2000 字以上的文档仍只译光标行）。取舍说明：2000 字以内的短文档
+            # 也会整篇翻译；如需“文档只译行、输入框才整篇”，得另加控件类型识别。
+            old_seq = user32.GetClipboardSequenceNumber()
+            _send_ctrl_a()
+            time.sleep(0.05)
+            _send_ctrl_c()
+            captured_all = _wait_for_clipboard_change(old_seq, timeout=0.35)
+            _log(f"Strategy 2 (Ctrl+A) captured {len(captured_all) if captured_all else 0} chars")
+            if captured_all and self.contains_chinese(captured_all) and len(captured_all) < 2000:
+                captured = captured_all
 
             last_flow_seq = user32.GetClipboardSequenceNumber()
             clean_text = captured.strip() if captured else ""
@@ -457,6 +459,6 @@ class InPlaceReplacer:
                     # 只有用户此后没动过剪贴板时才恢复，避免覆盖用户新复制的内容。
                     if user32.GetClipboardSequenceNumber() == last_flow_seq:
                         pyperclip.copy(original_clipboard)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_warning("CLIPBOARD", f"restore failed, translation left on clipboard: {e}")
             self.is_busy = False

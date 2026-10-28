@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget, QApplication
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QCursor, QFont, QGuiApplication
 
 from ui import theme
+from core.logging import debug as _log_debug
 
 class SnippingWidget(QWidget):
     screenshot_captured = Signal(object)  # 发射 PIL Image
@@ -51,8 +52,24 @@ class SnippingWidget(QWidget):
             hwnd = int(self.winId())
             ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
             ctypes.windll.user32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("SNIPPING", f"SetWindowPos/SetForegroundWindow failed: {e}")
+
+    def _to_device_rect(self, logical_rect):
+        """逻辑坐标矩形 → 设备像素矩形。
+
+        鼠标事件给的是逻辑坐标，但 QPixmap.copy 与 drawPixmap 的源矩形
+        要的是设备像素；125%–200% 缩放下不换算，截到的就是错位区域
+        （2026-10-28 review 小问题）。离屏 dpr=1 验不出，须真机验。
+        多屏 DPI 不一致时以主屏 dpr 为准，是近似值。
+        """
+        dpr = self.full_screen_pixmap.devicePixelRatio()
+        return QRect(
+            int(logical_rect.x() * dpr),
+            int(logical_rect.y() * dpr),
+            int(logical_rect.width() * dpr),
+            int(logical_rect.height() * dpr),
+        )
 
     def paintEvent(self, event):
         if not self.full_screen_pixmap:
@@ -70,7 +87,7 @@ class SnippingWidget(QWidget):
             select_rect = QRect(self.begin_point, self.end_point).normalized()
             if not select_rect.isEmpty():
                 # 挖空高亮原图
-                painter.drawPixmap(select_rect, self.full_screen_pixmap, select_rect)
+                painter.drawPixmap(select_rect, self.full_screen_pixmap, self._to_device_rect(select_rect))
 
                 # 绘制边框
                 pen = QPen(QColor(255, 255, 255), 1.5, Qt.DashLine)
@@ -108,7 +125,7 @@ class SnippingWidget(QWidget):
 
             if select_rect.width() > 10 and select_rect.height() > 10:
                 # 截取框选部分转为 PIL Image
-                cropped_pixmap = self.full_screen_pixmap.copy(select_rect)
+                cropped_pixmap = self.full_screen_pixmap.copy(self._to_device_rect(select_rect))
                 image = cropped_pixmap.toImage()
 
                 # 将 QImage 转换为 PIL Image

@@ -44,9 +44,23 @@ def get_channel() -> str:
         return "源码运行"
     exe = os.path.abspath(sys.executable)
     if sys.platform == "win32":
-        lowered = exe.lower()
-        if "program files" in lowered:
-            return "安装版"
+        # 以前是子串 "program files" in 路径：便携版放在
+        # "C:\Program Files Backup\..." 这类目录下会被误判成安装版
+        # （2026-10-28 review 小问题）。现在按规范化后的路径分量比：
+        # 程序目录等于 Program Files 目录本身，或在其子目录下，才算安装版。
+        exe_dir = os.path.normcase(os.path.normpath(os.path.dirname(exe)))
+        candidates = []
+        for var in ("ProgramFiles", "ProgramFiles(x86)"):
+            pf = os.environ.get(var)
+            if pf:
+                candidates.append(pf)
+        drive = os.path.splitdrive(exe)[0] or "C:"
+        candidates.append(os.path.join(drive, os.sep, "Program Files"))
+        candidates.append(os.path.join(drive, os.sep, "Program Files (x86)"))
+        for pf in candidates:
+            pf_norm = os.path.normcase(os.path.normpath(pf))
+            if exe_dir == pf_norm or exe_dir.startswith(pf_norm + os.sep):
+                return "安装版"
         return "便携版"
     if sys.platform == "darwin":
         if exe.startswith("/Applications/"):

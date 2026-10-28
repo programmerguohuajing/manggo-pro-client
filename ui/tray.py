@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 
 from ui import theme
 from ui.icons import get_app_icon
+from core.hotkeys import normalize_hotkeys
 
 # 兼容旧导入：main.py 之前从这里取图标，现图标住在 ui/icons.py。
 __all__ = ["TrayManager", "get_app_icon"]
@@ -29,12 +30,15 @@ class TrayManager(QObject):
     toggle_triple_space_requested = Signal(bool)
     exit_requested = Signal()
 
-    def __init__(self, initial_enabled: bool = True, engine_label: str = "内置极速通道", parent=None):
+    def __init__(self, initial_enabled: bool = True, engine_label: str = "内置极速通道", hotkeys=None, parent=None):
         super().__init__(parent)
         self.icon = get_app_icon()
         self.tray_icon = QSystemTrayIcon(self.icon, self)
         self.enabled = initial_enabled
         self.engine_label = engine_label
+        # 菜单里的热键文案以前写死（Alt+M/Q/W/Space），用户改了热键后
+        # 菜单还显示旧的；现在跟配置走，配置变了就刷新（2026-10-28 review 小问题）。
+        self._hotkeys = normalize_hotkeys(hotkeys)
         self._build_menu()
         self._refresh_status()
         self.tray_icon.activated.connect(self._on_tray_activated)
@@ -50,17 +54,18 @@ class TrayManager(QObject):
         menu = QMenu()
         menu.setStyleSheet(theme.TRAY_MENU_STYLESHEET)
 
-        act_main = menu.addAction("桌面翻译工作台	Alt+M")
-        act_main.triggered.connect(self.open_main_requested.emit)
+        self.act_main = menu.addAction("")
+        self.act_main.triggered.connect(self.open_main_requested.emit)
 
-        act_sel = menu.addAction("划选文本翻译	Alt+Q")
-        act_sel.triggered.connect(self.open_selection_requested.emit)
+        self.act_sel = menu.addAction("")
+        self.act_sel.triggered.connect(self.open_selection_requested.emit)
 
-        act_snip = menu.addAction("截图 OCR 识别	Alt+W")
-        act_snip.triggered.connect(self.open_snipping_requested.emit)
+        self.act_snip = menu.addAction("")
+        self.act_snip.triggered.connect(self.open_snipping_requested.emit)
 
-        act_voice = menu.addAction("语音输入与听写	Alt+Space")
-        act_voice.triggered.connect(self.open_voice_requested.emit)
+        self.act_voice = menu.addAction("")
+        self.act_voice.triggered.connect(self.open_voice_requested.emit)
+        self._apply_hotkey_texts()
 
         act_history = menu.addAction("历史记录 & 生词本")
         act_history.triggered.connect(self.open_history_requested.emit)
@@ -85,6 +90,18 @@ class TrayManager(QObject):
         act_exit.triggered.connect(self.exit_requested.emit)
 
         self.tray_icon.setContextMenu(menu)
+
+    def set_hotkeys(self, hotkeys):
+        """配置里的热键变了，刷新菜单文案（不重建菜单）。"""
+        self._hotkeys = normalize_hotkeys(hotkeys)
+        self._apply_hotkey_texts()
+
+    def _apply_hotkey_texts(self):
+        hk = self._hotkeys
+        self.act_main.setText(f"桌面翻译工作台\t{hk['workbench']}")
+        self.act_sel.setText(f"划选文本翻译\t{hk['selection']}")
+        self.act_snip.setText(f"截图 OCR 识别\t{hk['screenshot']}")
+        self.act_voice.setText(f"语音输入与听写\t{hk['voice']}")
 
     def _refresh_status(self):
         state = "运行中" if self.enabled else "已暂停"

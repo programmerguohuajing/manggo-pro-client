@@ -30,7 +30,7 @@ from core.hotkeys import (
 from core.platform import IS_WINDOWS
 from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
-from core.logging import error as _log_error
+from core.logging import error as _log_error, debug as _log_debug
 from core.version import get_version, get_channel
 from core import updater
 from core.settings_search import section_matches
@@ -173,9 +173,10 @@ def load_config() -> dict:
                 backup = CONFIG_FILE + ".corrupt-" + time.strftime("%Y%m%d%H%M%S")
                 os.replace(CONFIG_FILE, backup)
                 CONFIG_CORRUPT_BACKUP = backup
-            except Exception:
-                pass
-            _log_error("CONFIG", "config.json damaged, backed up, defaults used")
+                _log_error("CONFIG", f"config.json damaged, backed up to {backup}, defaults used")
+            except Exception as e:
+                # 以前这里无论备份成没成功都报“已备份”，备份失败时是谎报。
+                _log_error("CONFIG", f"config.json damaged, backup failed ({e}), defaults used")
     return DEFAULT_CONFIG.copy()
 
 
@@ -205,8 +206,8 @@ def save_config(cfg: dict) -> bool:
         _log_error("CONFIG", f"Error saving config: {e}")
         try:
             os.remove(CONFIG_FILE + ".tmp")
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("CONFIG", f"tmp cleanup failed: {e}")
         return False
 
 class TranslationTestDialog(QDialog):

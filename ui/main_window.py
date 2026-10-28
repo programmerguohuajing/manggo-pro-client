@@ -19,13 +19,18 @@ class MainWindow(QWidget):
     request_history = Signal()
     request_settings = Signal()
 
-    def __init__(self, translator_mgr, parent=None):
+    def __init__(self, translator_mgr, hotkeys=None, parent=None):
         super().__init__(parent)
         self.translator_mgr = translator_mgr
         self._translate_workers = []
         self.setWindowTitle("Manggo Pro - 桌面翻译工作台")
         self.resize(780, 520)
         self.setStyleSheet(theme.WINDOW_STYLESHEET)
+
+        # 热键先在 __init__ 里归一化好存在 self._hotkeys，_init_ui 只读它：
+        # _init_ui 没有 hotkeys 参数，直接引用会 NameError。
+        from core.hotkeys import normalize_hotkeys as _normalize_hotkeys
+        self._hotkeys = _normalize_hotkeys(hotkeys)
 
         self._init_ui()
 
@@ -43,7 +48,9 @@ class MainWindow(QWidget):
 
         top_bar.addStretch()
 
-        self.btn_snip = QPushButton("截图翻译 · Alt+W", self)
+        # 截图按钮的热键文案以前写死 Alt+W，改了热键后会误导；
+        # 现在跟配置走（2026-10-28 review 小问题）。
+        self.btn_snip = QPushButton(f"截图翻译 · {self._hotkeys['screenshot']}", self)
         self.btn_snip.setProperty("class", "SecondaryBtn")
         self.btn_snip.clicked.connect(self.request_snipping.emit)
         top_bar.addWidget(self.btn_snip)
@@ -153,6 +160,12 @@ class MainWindow(QWidget):
     # 根本不读这两个框，选了等于没选）。
     _SRC_MAP = {0: "auto", 1: "zh-CN", 2: "en"}
     _TGT_MAP = {0: "auto", 1: "en", 2: "zh-CN"}
+
+    def set_hotkeys(self, hotkeys):
+        """配置里的热键变了，刷新截图按钮文案。"""
+        from core.hotkeys import normalize_hotkeys as _normalize_hotkeys
+        self._hotkeys = _normalize_hotkeys(hotkeys)
+        self.btn_snip.setText(f"截图翻译 · {self._hotkeys['screenshot']}")
 
     def do_translate(self):
         src_text = self.txt_source.toPlainText().strip()

@@ -38,6 +38,8 @@ def _dir_writable(directory: str) -> bool:
         try:
             os.remove(tmp)
         except Exception:
+            # 探针的临时文件清不掉：残留一个空临时文件无害，且本模块不能 import
+            # core.logging（logging 反过来 import paths，会循环），只能静默。
             pass
     return True
 
@@ -64,5 +66,7 @@ def data_file(preferred_path: str) -> str:
         try:
             shutil.copy2(preferred_path, user_path)
         except Exception:
+            # 首次运行拷贝失败：返回用户目录路径，应用以全新数据启动（不崩溃）；
+            # 同上，循环 import 原因记不了日志。
             pass
     return user_path

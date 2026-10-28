@@ -20,7 +20,7 @@ import sys
 import tempfile
 from xml.sax.saxutils import escape as _xml_escape
 
-from core.logging import error as _log_error
+from core.logging import error as _log_error, debug as _log_debug
 from core.platform import IS_WINDOWS
 
 TASK_NAME = "ManggoProClient"
@@ -141,8 +141,8 @@ def set_autostart_enabled(enabled: bool) -> bool:
             if tmp:
                 try:
                     os.remove(tmp)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_debug("AUTOSTART", f"tmp cleanup failed: {e}")
         r = _run_schtasks([
             "/CREATE", "/TN", TASK_NAME, "/TR", _exe_command_with_args(),
             "/SC", "ONLOGON", "/RL", "HIGHEST", "/F",

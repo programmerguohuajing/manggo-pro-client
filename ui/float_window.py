@@ -10,9 +10,40 @@ from PySide6.QtGui import QFont, QColor, QCursor, QGuiApplication
 import pyperclip
 
 from ui import theme
+from core.logging import debug as _log_debug
 
 from core.tts import tts_player
 from core.database import db
+
+# 悬浮卡片文本框的纵向滚动条：自绘，不用原生样式。
+# 原因（2026-10-28，用户截图）：无边框半透明 Tool 窗口里，原生滚动条
+# 渲染出来是一条带上下小箭头的细条，滑块看不清、看着像坏了；
+# 自绘后滑块常驻可见、悬停变橙，与卡片风格一致，且各平台渲染一致。
+FLOAT_TEXTEDIT_SCROLLBAR = f"""
+    QScrollBar:vertical {{
+        border: none;
+        background: transparent;
+        width: 10px;
+        margin: 0px;
+    }}
+    QScrollBar::handle:vertical {{
+        background: {theme.SECONDARY};
+        min-height: 24px;
+        border-radius: 5px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: {theme.ACCENT};
+    }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0px;
+    }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        background: transparent;
+    }}
+    QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {{
+        height: 0px;
+    }}
+"""
 
 class FloatResultWindow(QWidget):
     def __init__(self, parent=None):
@@ -104,7 +135,10 @@ class FloatResultWindow(QWidget):
         self.txt_source = QTextEdit(self.card)
         self.txt_source.setReadOnly(True)
         self.txt_source.setFixedHeight(80)
-        self.txt_source.setStyleSheet(f"border: 1px solid {theme.BORDER}; border-radius: 6px; background: {theme.SURFACE_MUTED}; font-size: 12px; padding: 4px;")
+        # 注意：基础属性必须包在 QTextEdit { } 里。裸属性 + 带选择器的规则混写时，
+        # Qt 会把裸属性吞进选择器位置导致整段解析失败（实测）；包起来后解析通过，
+        # 顺带修了裸样式漏给子控件（滚动条）的问题。
+        self.txt_source.setStyleSheet(f"QTextEdit {{border: 1px solid {theme.BORDER}; border-radius: 6px; background: {theme.SURFACE_MUTED}; font-size: 12px; padding: 4px;}}" + FLOAT_TEXTEDIT_SCROLLBAR)
         card_layout.addWidget(self.txt_source)
 
         # 3. 译文展示与操作
@@ -129,7 +163,7 @@ class FloatResultWindow(QWidget):
 
         self.txt_target = QTextEdit(self.card)
         self.txt_target.setReadOnly(True)
-        self.txt_target.setStyleSheet(f"border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px; background: {theme.SURFACE}; font-size: 13px; font-weight: 500; color: {theme.TEXT_PRIMARY}; padding: 4px;")
+        self.txt_target.setStyleSheet(f"QTextEdit {{border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px; background: {theme.SURFACE}; font-size: 13px; font-weight: 500; color: {theme.TEXT_PRIMARY}; padding: 4px;}}" + FLOAT_TEXTEDIT_SCROLLBAR)
         card_layout.addWidget(self.txt_target, 1)
 
         # 右下角缩放手柄：无边框窗口靠它改变大小。
@@ -199,8 +233,8 @@ class FloatResultWindow(QWidget):
             hwnd = int(self.winId())
             ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
             ctypes.windll.user32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_debug("FLOAT", f"SetWindowPos/SetForegroundWindow failed: {e}")
 
     def _refresh_star(self):
         """星标：已收藏取主题橙，未收藏取浅灰（方案 A 星标规则）。"""
