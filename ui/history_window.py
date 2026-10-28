@@ -2,6 +2,7 @@
 历史记录与生词本管理窗口
 """
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -32,6 +33,20 @@ class HistoryWindow(QWidget):
         h_filter = QHBoxLayout()
         self.txt_search = QLineEdit(self)
         self.txt_search.setPlaceholderText("搜索历史原文或译文...")
+        self.txt_search.setStyleSheet(f"""
+            QLineEdit {{
+                background: {theme.INPUT_FILL};
+                border: 1px solid {theme.BORDER};
+                border-radius: 6px;
+                padding: 7px 10px;
+                font-size: 12px;
+                color: {theme.INK};
+            }}
+            QLineEdit:focus {{
+                border: 1.5px solid {theme.ACCENT};
+                background: {theme.SURFACE};
+            }}
+        """)
         self.txt_search.textChanged.connect(self.refresh_data)
         h_filter.addWidget(self.txt_search)
 
@@ -40,13 +55,38 @@ class HistoryWindow(QWidget):
         h_filter.addWidget(self.chk_starred_only)
 
         self.btn_clear = QPushButton("清空常规历史", self)
+        self.btn_clear.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {theme.SECONDARY};
+                font-size: 12px;
+                padding: 4px 8px;
+            }}
+        """)
         self.btn_clear.clicked.connect(self._clear_unstarred)
         h_filter.addWidget(self.btn_clear)
 
         layout.addLayout(h_filter)
 
-        # 2. 数据表格
+        # 2. 数据表格（细线行列表，无行号）
         self.table = QTableWidget(self)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                gridline-color: {theme.BORDER};
+                border: 1px solid {theme.BORDER};
+                color: {theme.INK};
+            }}
+            QHeaderView::section {{
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid {theme.BORDER};
+                color: {theme.SECONDARY};
+                font-size: 12px;
+                padding: 4px;
+            }}
+        """)
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["生词本", "时间", "来源", "原文", "译文"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -59,8 +99,8 @@ class HistoryWindow(QWidget):
         self.table.cellDoubleClicked.connect(self._copy_cell_content)
         layout.addWidget(self.table)
 
-        lbl_tip = QLabel("💡 提示：双击单元格可快速复制该项内容。点击星标可直接将条目加入/移出生词本。", self)
-        lbl_tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
+        lbl_tip = QLabel("提示：双击单元格可快速复制该项内容。点击星标可直接将条目加入/移出生词本。", self)
+        lbl_tip.setStyleSheet(f"color: {theme.SECONDARY}; font-size: 11px;")
         layout.addWidget(lbl_tip)
 
     def refresh_data(self):
@@ -78,10 +118,13 @@ class HistoryWindow(QWidget):
         }
 
         for row_idx, r in enumerate(records):
-            # 星标按钮
+            # 星标：已收藏主题橙，未收藏浅灰（与悬浮窗同一规则）
             star_text = "★" if r["is_starred"] else "☆"
             item_star = QTableWidgetItem(star_text)
             item_star.setTextAlignment(Qt.AlignCenter)
+            item_star.setForeground(
+                QColor(theme.STAR if r["is_starred"] else theme.STAR_INACTIVE)
+            )
             item_star.setData(Qt.UserRole, r["id"])
             self.table.setItem(row_idx, 0, item_star)
 
@@ -106,7 +149,11 @@ class HistoryWindow(QWidget):
             # 切换星标
             rec_id = self.table.item(row, 0).data(Qt.UserRole)
             is_starred = db.toggle_star(rec_id)
-            self.table.item(row, 0).setText("★" if is_starred else "☆")
+            star_item = self.table.item(row, 0)
+            star_item.setText("★" if is_starred else "☆")
+            star_item.setForeground(
+                QColor(theme.STAR if is_starred else theme.STAR_INACTIVE)
+            )
         else:
             item = self.table.item(row, col)
             if item:
