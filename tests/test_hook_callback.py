@@ -16,6 +16,7 @@ import sys
 import types
 import unittest
 
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # core.hook 经 core.replacer 依赖 pyperclip（运行时才用），单测纯标准库，
@@ -26,6 +27,7 @@ if "pyperclip" not in sys.modules:
     _stub.paste = lambda: ""
     sys.modules["pyperclip"] = _stub
 
+from core import logging as _diag_logging
 import core.hook as hook_mod
 from core.hook import GlobalKeyboardHook, KBDLLHOOKSTRUCT, hook_self_check
 
@@ -117,6 +119,39 @@ class CallbackPassThroughTest(unittest.TestCase):
         self.hook._space_down = True
         self.assertEqual(_press(self.hook, VK_SPACE, WM_KEYDOWN, 0), 0)
 
+
+    def test_diag_nonzero_next_return_logged(self):
+        """1.0.18：链上下一个钩子返回非 0 时，回调必须把这个值记进日志
+        （1.0.17 的日志看不见返回值，无法区分“回调吞键”与“下家吞键”）。"""
+        _diag_logging.clear_buffer()
+
+        class _FakeNonzero(FakeUser32):
+            def CallNextHookEx(self, hook_id, nCode, wParam, lParam):
+                return 5
+
+        hook_mod.user32 = _FakeNonzero()
+        ret = _press(self.hook, 0x41, WM_KEYDOWN, 0)
+        self.assertEqual(ret, 5)
+        msgs = " ".join(str(r) for r in _diag_logging.get_records())
+        self.assertIn("nonzero", msgs)
+        self.assertIn("0x41", msgs)
+
+    def test_diag_callback_count_logged(self):
+        """1.0.18：回调计数每 50 次记一条（只记条数不记按键），
+        证明回调在真实按键时是不是还在跑、跑到第几次停的。"""
+        _diag_logging.clear_buffer()
+        for _ in range(50):
+            _press(self.hook, 0x41, WM_KEYDOWN, 0)
+        msgs = " ".join(str(r) for r in _diag_logging.get_records())
+        self.assertIn("callback count=50", msgs)
+
+    def test_diag_first_callback_logged_once(self):
+        """1.0.18：第一次回调记一条“跑起来了”，之后不再重复记。"""
+        _diag_logging.clear_buffer()
+        _press(self.hook, 0x41, WM_KEYDOWN, 0)
+        _press(self.hook, 0x42, WM_KEYDOWN, 0)
+        msgs = " ".join(str(r) for r in _diag_logging.get_records())
+        self.assertEqual(msgs.count("first callback"), 1)
 
 if __name__ == "__main__":
     unittest.main()

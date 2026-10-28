@@ -115,6 +115,9 @@ class GlobalKeyboardHook:
         # 按住空格的自动重复（此前只有热键有防重复，空格没有，按住
         # 空格会直接攒满 3 次触发就地转译）。
         self._space_down = False
+        # 1.0.18 诊断计数：只记条数不记按键内容，证明回调是否还在跑。
+        self._diag_count = 0
+        self._diag_first_logged = False
         self.update_hotkeys(hotkeys)
 
     def update_hotkeys(self, hotkeys: Optional[Dict[str, str]]) -> None:
@@ -166,6 +169,14 @@ class GlobalKeyboardHook:
             return 0
 
     def _hook_callback_inner(self, nCode, wParam, lParam):
+        # 1.0.18 诊断：回调跑没跑、返回是不是非 0，是 1.0.17 日志看不见
+        # 的部分。只记条数和被挡的键，不记正常按键内容。
+        self._diag_count += 1
+        if not self._diag_first_logged:
+            self._diag_first_logged = True
+            _log_info("HOOK", f"DIAG first callback running: nCode={nCode} wParam={wParam:#x}")
+        if self._diag_count % 50 == 0:
+            _log_info("HOOK", f"DIAG callback count={self._diag_count}")
         if nCode >= 0:
             vk_code = lParam.contents.vkCode
             flags = lParam.contents.flags
@@ -245,7 +256,13 @@ class GlobalKeyboardHook:
                 if vk_code == VK_SPACE:
                     self._space_down = False
 
-        return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
+        ret = user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
+        # 1.0.18 诊断：只有返回值非 0（即这个键会被挡）才记，且只记这一个键。
+        # 若正常键这里出现非 0，说明是链上下一个钩子让它吞的；若一直是 0
+        # 但键还是死，说明问题不在返回值（挂起/没跑到回调之类）。
+        if nCode >= 0 and ret != 0:
+            _log_error("HOOK", f"DIAG CallNextHookEx nonzero ret={ret} vk={vk_code:#x} wParam={wParam:#x}")
+        return ret
 
     def _run_hook_loop(self):
         self._hook_proc_ref = HOOKPROC(self._hook_callback)
