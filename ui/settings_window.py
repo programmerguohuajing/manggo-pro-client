@@ -160,7 +160,7 @@ class TranslationTestDialog(QDialog):
 
         # 1. 顶部 Header
         header = QHBoxLayout()
-        lbl_title = QLabel("🥭 Manggo 通道测试诊断", self)
+        lbl_title = QLabel("Manggo 通道测试诊断", self)
         lbl_title.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
         lbl_title.setStyleSheet(f"color: {theme.ACCENT};")
         header.addWidget(lbl_title)
@@ -206,12 +206,12 @@ class TranslationTestDialog(QDialog):
             h_src_top.addWidget(lbl_src_tag)
             h_src_top.addStretch()
 
-            btn_src_tts = QPushButton("🔊 朗读", card_src)
+            btn_src_tts = QPushButton("朗读", card_src)
             btn_src_tts.setProperty("class", "SecondaryBtn")
             btn_src_tts.clicked.connect(lambda: tts_player.speak(self.source_text))
             h_src_top.addWidget(btn_src_tts)
 
-            btn_src_copy = QPushButton("📋 复制", card_src)
+            btn_src_copy = QPushButton("复制", card_src)
             btn_src_copy.setProperty("class", "SecondaryBtn")
             btn_src_copy.clicked.connect(lambda: pyperclip.copy(self.source_text))
             h_src_top.addWidget(btn_src_copy)
@@ -237,12 +237,12 @@ class TranslationTestDialog(QDialog):
             h_tgt_top.addWidget(lbl_tgt_tag)
             h_tgt_top.addStretch()
 
-            btn_tgt_tts = QPushButton("🔊 朗读", card_tgt)
+            btn_tgt_tts = QPushButton("朗读", card_tgt)
             btn_tgt_tts.setProperty("class", "SecondaryBtn")
             btn_tgt_tts.clicked.connect(lambda: tts_player.speak(self.target_text))
             h_tgt_top.addWidget(btn_tgt_tts)
 
-            btn_tgt_copy = QPushButton("📋 复制译文", card_tgt)
+            btn_tgt_copy = QPushButton("复制译文", card_tgt)
             btn_tgt_copy.setProperty("class", "SecondaryBtn")
             btn_tgt_copy.clicked.connect(lambda: pyperclip.copy(self.target_text))
             h_tgt_top.addWidget(btn_tgt_copy)
@@ -273,7 +273,7 @@ class TranslationTestDialog(QDialog):
             txt_err.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.ERROR_BORDER}; border-radius: 6px; padding: 6px; font-size: 11px; color: {theme.ERROR_TEXT_DARK};")
             ce_layout.addWidget(txt_err)
 
-            lbl_err_hint = QLabel("💡 排查建议：\n1. 若为大模型 Pro 通道，请确认 API Key 是否有效且账户有余额；\n2. 检查 Base URL 是否正确（官方 OpenAI/DeepSeek 需包含 /v1）；\n3. 确认网络连接或代理设置正常。", card_err)
+            lbl_err_hint = QLabel("排查建议：\n1. 若为大模型 Pro 通道，请确认 API Key 是否有效且账户有余额；\n2. 检查 Base URL 是否正确（官方 OpenAI/DeepSeek 需包含 /v1）；\n3. 确认网络连接或代理设置正常。", card_err)
             lbl_err_hint.setStyleSheet(f"color: {theme.ERROR_HINT_DARK}; font-size: 11px; line-height: 1.4;")
             ce_layout.addWidget(lbl_err_hint)
             root.addWidget(card_err)
@@ -287,7 +287,7 @@ class TranslationTestDialog(QDialog):
         footer.addStretch()
 
         if is_success:
-            btn_copy_all = QPushButton("📋 复制结果", self)
+            btn_copy_all = QPushButton("复制结果", self)
             btn_copy_all.setProperty("class", "SecondaryBtn")
             btn_copy_all.clicked.connect(lambda: pyperclip.copy(self.target_text))
             footer.addWidget(btn_copy_all)
@@ -929,7 +929,7 @@ class SettingsWindow(QWidget):
         c_l = QVBoxLayout(card)
         c_l.setSpacing(12)
 
-        lbl_app_name = QLabel("🥭 Manggo Pro Client 桌面客户端")
+        lbl_app_name = QLabel("Manggo Pro Client 桌面客户端")
         lbl_app_name.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
         lbl_app_name.setStyleSheet(f"color: {theme.ACCENT};")
         c_l.addWidget(lbl_app_name)
@@ -975,7 +975,7 @@ class SettingsWindow(QWidget):
             ("键盘底层钩子 (WH_KEYBOARD_LL):", hook_status),
             ("本地历史记录数据库 (SQLite):", "已挂载 (history.sqlite3)"),
             ("离线文字识别引擎 (RapidOCR):", "就绪 (支持中英混排离线识别)"),
-            ("🔊 语音合成朗读 (TTS):", tts_status)
+            ("语音合成朗读 (TTS):", tts_status)
         ]
         for title, val in status_items:
             h = QHBoxLayout()
