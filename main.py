@@ -15,6 +15,21 @@ import os
 import time
 import threading
 import ctypes
+
+# 阶段日志：从进程第一毫秒就写，写到 %TEMP%（任何用户都可写，
+# 不依赖程序目录/用户目录是否可写）。用途：双击没起来时，现有
+# debug_app.log 里经常一行都没有（卡在 import 或提权里，日志模块
+# 还没机会写），看这个文件最后一行就知道卡在哪一步。
+def _stage(msg: str):
+    try:
+        path = os.path.join(os.environ.get("TEMP") or os.path.expanduser("~"), "ManggoProClient-startup.log")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] pid={os.getpid()} {msg}\n")
+    except Exception:
+        pass
+
+_stage("main-enter")
+
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
 import pyperclip
@@ -44,6 +59,8 @@ from ui.settings_window import SettingsWindow, load_config
 from ui.icons import get_app_icon
 from ui.tray import TrayManager
 from ui.console_window import ConsoleWindow
+
+_stage("imports-done")
 
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
 kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
@@ -301,7 +318,22 @@ class AppCoordinator(QObject):
                 os.remove(PID_FILE)
         except Exception:
             pass
+        # 退出兜底：3 秒后若进程还在，直接 os._exit(0)。
+        # 正常退出时主线程走 sys.exit，跑不到 3 秒；事件循环卡住、
+        # QThread 析构阻塞、或之前卡在提权里的残留实例等任何拖住
+        # 退出的情况，都由它兜底——托盘退出后绝不在任务管理器里
+        # 留残留进程。PID 文件上面已删，互斥体由操作系统在进程
+        # 结束时回收，不会因此锁死下一次启动。
+        threading.Thread(target=self._exit_watchdog, daemon=True).start()
+        try:
+            self.tray.tray_icon.hide()
+        except Exception:
+            pass
         self.app.quit()
+
+    def _exit_watchdog(self):
+        time.sleep(3)
+        os._exit(0)
 
 def _is_admin() -> bool:
     if not IS_WINDOWS:
@@ -320,6 +352,23 @@ def check_admin_elevation():
         return
     try:
         if not _is_admin():
+            # 提权前先弹一个可见提示：之前这一步是静默的——ShellExecuteW
+            # 会等 UAC 框被点掉才返回，UAC 框若被别的窗口盖住，用户
+            # 根本不知道在等自己，进程就悄悄卡在这里、托盘也不出，
+            # 看起来就是“双击没反应”。先告诉用户 UAC 框马上来、
+            # 点“是”，再去调 runas，框被盖住时用户也知道按 Alt+Tab 找。
+            _stage("elevation-runas-call")
+            try:
+                ctypes.windll.user32.MessageBoxW(
+                    None,
+                    "Manggo Pro Client 需要管理员权限，才能向管理员应用发送按键。\n\n"
+                    "点击“确定”后会弹出系统权限确认窗口，请点“是”。\n"
+                    "如果没看到确认窗口，请按 Alt+Tab 找一下。",
+                    "Manggo Pro Client",
+                    0x40,  # MB_ICONINFORMATION
+                )
+            except Exception:
+                pass
             # 打包版直接拉起 exe 本身，不需要传脚本路径：原来传的
             # __file__ 在打包后指向 _internal 里不存在的 .py 路径，
             # 虽然启动器会忽略多余参数，但传一个不存在的路径本身就是错的；
@@ -334,11 +383,13 @@ def check_admin_elevation():
             # 提权结果必须记日志：之前这一步是黑盒，双击没起来时
             # 根本不知道是 UAC 被拒、runas 失败，还是子进程没起来。
             _log_info("APP", f"elevation: not admin, runas res={res} (>32 means child spawned)")
+            _stage(f"elevation-runas-res={res}")
             if res > 32:
                 sys.exit(0)
             _log_info("APP", "elevation: runas did not spawn a child, continuing non-elevated")
         else:
             _log_info("APP", "elevation: already admin, no relaunch")
+            _stage("elevation-already-admin")
     except Exception as e:
         _log_info("APP", f"elevation: check failed ({e}), continuing non-elevated")
 
@@ -426,15 +477,18 @@ def main():
             f.write(str(os.getpid()))
     except Exception:
         pass
+    _stage("mutex-done")
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(get_app_icon())
+    _stage("app-created")
 
     coordinator = AppCoordinator(app)
     # 启动里程碑：托盘已建、钩子已起。双击没起来时，看日志有没有
     # 这一行就能区分“死在提权/启动早期”还是“起来了但托盘图标没看见”。
     _log_info("APP", f"started: admin={_is_admin()}, tray up, entering event loop")
+    _stage("event-loop-enter")
     exit_code = app.exec()
 
     try:
