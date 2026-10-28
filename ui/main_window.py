@@ -22,6 +22,7 @@ class MainWindow(QWidget):
     def __init__(self, translator_mgr, parent=None):
         super().__init__(parent)
         self.translator_mgr = translator_mgr
+        self._translate_workers = []
         self.setWindowTitle("Manggo Pro - 桌面翻译工作台")
         self.resize(780, 520)
         self.setStyleSheet(theme.WINDOW_STYLESHEET)
@@ -153,7 +154,26 @@ class MainWindow(QWidget):
         if not src_text:
             return
 
-        tgt_text = self.translator_mgr.translate(src_text)
+        # 翻译放后台线程：离线回退时主窗口不再冻住。
+        from ui.translate_worker import start_translate
+
+        self.btn_translate.setEnabled(False)
+        self.txt_target.setPlainText("翻译中…")
+        start_translate(
+            self, self._translate_workers, self.translator_mgr.translate,
+            src_text, self._on_translate_done,
+        )
+
+    def _on_translate_done(self, payload):
+        self.btn_translate.setEnabled(True)
+        if not payload.get("ok") or not payload.get("result"):
+            # 失败不进历史、不冒充成功，直接把原因显示出来。
+            self.txt_target.setPlainText(
+                f"翻译失败：{payload.get('error', '未知错误')}"
+            )
+            return
+        src_text = payload["text"]
+        tgt_text = payload["result"]
         self.txt_target.setPlainText(tgt_text)
 
         # 保存到数据库

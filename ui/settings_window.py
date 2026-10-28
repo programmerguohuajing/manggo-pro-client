@@ -455,6 +455,8 @@ class SettingsWindow(QWidget):
         self.setStyleSheet(SETTINGS_STYLESHEET + _checked_indicator_stylesheet() + _combo_arrow_stylesheet())
 
         self.config = load_config()
+        # 后台翻译线程持有列表（见 ui/translate_worker.start_translate）。
+        self._translate_workers = []
         # _load_values 期间的控件赋值不算“未保存更改”。
         self._loading = True
 
@@ -1332,6 +1334,8 @@ class SettingsWindow(QWidget):
     def _test_translation(self):
         self.lbl_status.setText("正在测试连接翻译中...")
         from core.translator import TranslationManager
+        from ui.translate_worker import start_translate
+
         cfg = self._gather_config()
         mgr = TranslationManager(cfg)
         test_src = "今天天气真好，一起去公园散步吧。"
@@ -1339,33 +1343,37 @@ class SettingsWindow(QWidget):
         is_llm = cfg.get("engine") == "llm"
         model_name = cfg.get("llm_model", "deepseek-chat")
         mode_desc = f"大模型 Pro 通道 ({model_name})" if is_llm else "内置免费极速通道 (免Key)"
+        # 测试翻译放后台线程：离线回退时设置页不再冻住；结果回主线程弹窗。
+        self._test_mode_desc = mode_desc
+        start_translate(
+            self, self._translate_workers, mgr.translate_to_en, test_src,
+            self._on_test_translation_done,
+        )
 
-        start_time = time.time()
-        try:
-            res = mgr.translate_to_en(test_src)
-            elapsed_ms = int((time.time() - start_time) * 1000)
+    def _on_test_translation_done(self, payload):
+        test_src = payload["text"]
+        mode_desc = self._test_mode_desc
+        elapsed_ms = payload["elapsed_ms"]
+        if payload.get("ok") and payload.get("result"):
             self.lbl_status.setText(f"✓ 测试成功！通道响应正常 ({elapsed_ms}ms)")
-            
             dlg = TranslationTestDialog(
                 parent=self,
                 is_success=True,
                 source_text=test_src,
-                target_text=res,
+                target_text=payload["result"],
                 mode_name=mode_desc,
                 elapsed_ms=elapsed_ms
             )
             dlg.exec()
-        except Exception as e:
-            elapsed_ms = int((time.time() - start_time) * 1000)
+        else:
             self.lbl_status.setText("❌ 测试失败，请检查网络或参数")
-            
             dlg = TranslationTestDialog(
                 parent=self,
                 is_success=False,
                 source_text=test_src,
                 mode_name=mode_desc,
                 elapsed_ms=elapsed_ms,
-                error_msg=str(e)
+                error_msg=payload.get("error", "未知错误")
             )
             dlg.exec()
 

@@ -116,6 +116,8 @@ class AppCoordinator(QObject):
 
         # 1. 翻译管理器
         self.trans_mgr = TranslationManager(self.config)
+        # 后台翻译线程持有列表（见 ui/translate_worker.start_translate）。
+        self._translate_workers = []
 
         # 2. UI 组件全矩阵初始化
         self.toast = FloatToast()
@@ -270,8 +272,24 @@ class AppCoordinator(QObject):
     def _do_selection_translate(self, text: str):
         if not text:
             return
-        trans_res = self.trans_mgr.translate(text)
-        self.float_win.display("划词翻译", text, trans_res, source_type="selection")
+        # 翻译放后台线程，界面不再冻住（离线回退最长约 17.5 秒）。
+        from ui.translate_worker import start_translate
+
+        start_translate(
+            self, self._translate_workers, self.trans_mgr.translate, text,
+            self._on_selection_translated,
+        )
+
+    @Slot(dict)
+    def _on_selection_translated(self, payload):
+        if payload.get("ok") and payload.get("result"):
+            self.float_win.display(
+                "划词翻译", payload["text"], payload["result"], source_type="selection"
+            )
+        else:
+            self.notify_signal.emit(
+                "failed", f"翻译失败：{payload.get('error', '未知错误')}"
+            )
 
     def _handle_screenshot(self, pil_img):
         # 异步执行 OCR 与翻译，避免卡顿界面
@@ -288,16 +306,28 @@ class AppCoordinator(QObject):
 
     @Slot(str)
     def _do_ocr_translate(self, ocr_text: str):
-        try:
-            trans_res = self.trans_mgr.translate(ocr_text)
-        except Exception:
+        # 翻译同样放后台线程；OCR 本身已在线程里（见 _handle_screenshot）。
+        from ui.translate_worker import start_translate
+
+        start_translate(
+            self, self._translate_workers, self.trans_mgr.translate, ocr_text,
+            self._on_ocr_translated,
+        )
+
+    @Slot(dict)
+    def _on_ocr_translated(self, payload):
+        if payload.get("ok") and payload.get("result"):
+            self.float_win.display(
+                "截图 OCR 翻译", payload["text"], payload["result"], source_type="ocr"
+            )
+            # 结果窗已出，常驻的“正在进行 OCR 文字提取...”必须在这里关闭；
+            # 之前成功这路什么都没发，提示就永远挂在右下角。
+            self.toast.dismiss()
+        else:
             # 翻译失败也要把常驻的 translating 提示换掉，否则同样挂着不消失。
-            self.notify_signal.emit("failed", "翻译失败，请检查网络或参数")
-            return
-        self.float_win.display("截图 OCR 翻译", ocr_text, trans_res, source_type="ocr")
-        # 结果窗已出，常驻的“正在进行 OCR 文字提取...”必须在这里关闭；
-        # 之前成功这路什么都没发，提示就永远挂在右下角。
-        self.toast.dismiss()
+            self.notify_signal.emit(
+                "failed", f"翻译失败：{payload.get('error', '请检查网络或参数')}"
+            )
 
     @Slot(bool)
     def _on_toggle_hook(self, enabled: bool):
