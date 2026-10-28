@@ -12,7 +12,7 @@ import time
 import threading
 from typing import Callable, Dict, Optional
 
-from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning
+from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning, error as _log_error
 from core.platform import IS_WINDOWS
 from core.replacer import _send_mask_key
 from core.hotkeys import (
@@ -32,8 +32,13 @@ if IS_WINDOWS:
         ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD,
     ]
     user32.SetWindowsHookExW.restype = ctypes.c_void_p
+    # 注意：lParam 在回调里是 POINTER(KBDLLHOOKSTRUCT) 对象，ctypes
+    # 无法把它转成 LPARAM（c_ssize_t），会抛 ArgumentError；回调一抛
+    # 异常，ctypes 就返回未初始化的垃圾值（实测非 0），Windows 随即
+    # 吞掉该按键 —— 1.0.15 全系统无法输入就是这么来的。
+    # 所以这里第 4 个参数必须是 c_void_p（指针可正确转成地址）。
     user32.CallNextHookEx.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM,
+        ctypes.c_void_p, ctypes.c_int, wintypes.WPARAM, ctypes.c_void_p,
     ]
     user32.CallNextHookEx.restype = ctypes.c_void_p
     user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
@@ -148,6 +153,19 @@ class GlobalKeyboardHook:
         # 同一组合键触发两次。
 
     def _hook_callback(self, nCode, wParam, lParam):
+        # 防御：回调绝不能抛异常。ctypes 回调一抛异常就返回未初始化
+        # 的垃圾值（实测非 0），Windows 会把当次按键吞掉；1.0.15 的
+        # 全系统无法输入就是一次回调异常造成的。异常时记日志并放行。
+        try:
+            return self._hook_callback_inner(nCode, wParam, lParam)
+        except Exception:
+            try:
+                _log_error("HOOK", "hook callback failed, passing key through")
+            except Exception:
+                pass
+            return 0
+
+    def _hook_callback_inner(self, nCode, wParam, lParam):
         if nCode >= 0:
             vk_code = lParam.contents.vkCode
             flags = lParam.contents.flags
