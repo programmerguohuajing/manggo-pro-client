@@ -1,0 +1,25 @@
+# 锁定版本：来自上次全绿构建的实际安装版本（CI run 40658541380 Windows job，
+# 2026-10-28），不是猜的。构建（CI 与本地复现）一律装这个文件，保证可复现；
+# requirements.txt 仍保留兼容范围，供升级时参考。升级依赖：先改 requirements.txt，
+# 跑一次构建成功后用当次的 pip 安装清单刷新这里。
+Pillow==13.0.0
+PyInstaller==6.22.3
+PySide6-Essentials==6.12.0
+PyYAML==6.0.3
+Shapely==2.2.0
+altgraph==0.17.5
+flatbuffers==25.12.19
+numpy==2.5.4
+onnxruntime==1.31.1
+opencv-python==5.0.0.93
+pefile==2024.8.26
+protobuf==7.36.2
+pyclipper==1.4.0
+pyinstaller-hooks-contrib==2026.9
+pyperclip==1.11.0
+pywin32==312; sys_platform == "win32"
+pywin32-ctypes==0.2.3
+rapidocr-onnxruntime==1.4.4
+shiboken6==6.12.0
+six==1.17.0
+tqdm==4.70.1

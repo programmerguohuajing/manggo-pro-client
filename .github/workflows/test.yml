@@ -1,0 +1,26 @@
+name: Tests
+
+# 以前 CI 只在 build/packages 分支或打标签时构建，从不跑测试
+# （2026-10-28 review）。这个工作流在任何分支推送与 PR 时都跑单测，
+# 与构建工作流互不干扰。单测刻意只用标准库（不依赖 Qt），所以这里
+# 不用装任何依赖，ubuntu-latest 自带 Python 就够。
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
