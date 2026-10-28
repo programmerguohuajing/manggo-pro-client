@@ -10,7 +10,12 @@ Shapely==2.2.0
 altgraph==0.17.5
 flatbuffers==25.12.19
 numpy==2.5.4
-onnxruntime==1.31.1
+# onnxruntime：1.31.1 没有 macOS Intel（x86_64）轮子，1.0.15 的 Intel
+# 构建因此在“Install dependencies”步失败（pip：No matching distribution）。
+# Intel 用 1.23.2（该平台最新兼容版；rapidocr 要求 >=1.7.0，满足），
+# 其他平台保持 1.31.1。不要把这两行合并回单 pin。
+onnxruntime==1.31.1; sys_platform != "darwin" or platform_machine != "x86_64"
+onnxruntime==1.23.2; sys_platform == "darwin" and platform_machine == "x86_64"
 opencv-python==5.0.0.93
 pefile==2024.8.26
 protobuf==7.36.2
