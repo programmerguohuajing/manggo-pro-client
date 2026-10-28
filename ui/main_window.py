@@ -35,24 +35,24 @@ class MainWindow(QWidget):
 
         # 1. 顶部工具栏
         top_bar = QHBoxLayout()
-        lbl_app_logo = QLabel("🥭 Manggo Pro", self)
+        lbl_app_logo = QLabel("Manggo Pro", self)
         lbl_app_logo.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        lbl_app_logo.setStyleSheet(f"color: {theme.ACCENT};")
+        lbl_app_logo.setStyleSheet(f"color: {theme.INK};")
         top_bar.addWidget(lbl_app_logo)
 
         top_bar.addStretch()
 
-        self.btn_snip = QPushButton("📷 截图翻译 (Alt+W)", self)
+        self.btn_snip = QPushButton("截图翻译 · Alt+W", self)
         self.btn_snip.setProperty("class", "SecondaryBtn")
         self.btn_snip.clicked.connect(self.request_snipping.emit)
         top_bar.addWidget(self.btn_snip)
 
-        self.btn_history = QPushButton("📖 历史 & 生词本", self)
+        self.btn_history = QPushButton("历史 & 生词本", self)
         self.btn_history.setProperty("class", "SecondaryBtn")
         self.btn_history.clicked.connect(self.request_history.emit)
         top_bar.addWidget(self.btn_history)
 
-        self.btn_cfg = QPushButton("⚙️ 设置", self)
+        self.btn_cfg = QPushButton("设置", self)
         self.btn_cfg.setProperty("class", "SecondaryBtn")
         self.btn_cfg.clicked.connect(self.request_settings.emit)
         top_bar.addWidget(self.btn_cfg)
@@ -66,6 +66,7 @@ class MainWindow(QWidget):
         lang_bar.addWidget(self.cmb_src)
 
         btn_swap = QPushButton("⇄", self)
+        btn_swap.setProperty("class", "SecondaryBtn")
         btn_swap.setFixedSize(32, 26)
         btn_swap.clicked.connect(self._swap_lang)
         lang_bar.addWidget(btn_swap)
@@ -92,9 +93,11 @@ class MainWindow(QWidget):
         l_layout.setContentsMargins(0, 0, 0, 0)
 
         h_left_tools = QHBoxLayout()
-        h_left_tools.addWidget(QLabel("输入原文:"))
+        lbl_src_tag = QLabel("输入原文:")
+        lbl_src_tag.setStyleSheet(f"color: {theme.INK};")
+        h_left_tools.addWidget(lbl_src_tag)
         h_left_tools.addStretch()
-        btn_speak_src = QPushButton("🔊 朗读")
+        btn_speak_src = QPushButton("朗读")
         btn_speak_src.clicked.connect(lambda: tts_player.speak(self.txt_source.toPlainText()))
         h_left_tools.addWidget(btn_speak_src)
         btn_clear = QPushButton("清空")
@@ -115,13 +118,13 @@ class MainWindow(QWidget):
 
         h_right_tools = QHBoxLayout()
         lbl_target_tag = QLabel("译文结果:")
-        lbl_target_tag.setStyleSheet(f"color: {theme.SUCCESS}; font-weight: bold;")
+        lbl_target_tag.setStyleSheet(f"color: {theme.INK}; font-weight: bold;")
         h_right_tools.addWidget(lbl_target_tag)
         h_right_tools.addStretch()
-        btn_speak_tgt = QPushButton("🔊 朗读")
+        btn_speak_tgt = QPushButton("朗读")
         btn_speak_tgt.clicked.connect(lambda: tts_player.speak(self.txt_target.toPlainText()))
         h_right_tools.addWidget(btn_speak_tgt)
-        btn_copy_tgt = QPushButton("📋 复制")
+        btn_copy_tgt = QPushButton("复制")
         btn_copy_tgt.clicked.connect(lambda: pyperclip.copy(self.txt_target.toPlainText()))
         h_right_tools.addWidget(btn_copy_tgt)
         r_layout.addLayout(h_right_tools)
