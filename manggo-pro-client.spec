@@ -93,6 +93,12 @@ exe = EXE(
     strip=(sys.platform != "win32"),
     upx=(sys.platform != "win32"),
     console=False,
+    # Windows：manifest 声明 requireAdministrator，双击时由系统弹 UAC 并
+    # 直接以管理员身份启动（等同右键以管理员身份运行），取代 main.py
+    # 里的自提权重启（双击无法启动的根源，2026-10-28）。
+    # 注意：requireAdministrator 的程序不能用注册表 Run 键开机自启，
+    # 以后做自启要走任务计划程序。
+    uac_admin=(sys.platform == "win32"),
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

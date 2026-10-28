@@ -43,7 +43,7 @@ if IS_WINDOWS:
 
 from core.hotkeys import normalize_hotkeys
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_ESCAPE
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, _wait_modifiers_released, VK_MENU, VK_CONTROL, VK_ESCAPE
 from core.hook import GlobalKeyboardHook
 from core.logging import error as _log_error, info as _log_info
 from core.ocr import ocr_engine
@@ -184,7 +184,7 @@ class AppCoordinator(QObject):
         self.settings_win.config_changed.connect(self._on_config_changed)
 
     def _on_snipping_requested(self):
-        _release_modifiers()
+        _wait_modifiers_released()
         self.snipping_widget.start_snipping()
 
     def _notify_bridge(self, status: str, message: str):
@@ -194,23 +194,15 @@ class AppCoordinator(QObject):
         if not IS_WINDOWS:
             self.notify_signal.emit("failed", "划选翻译仅支持 Windows")
             return
-        # 划词翻译：彻底释放物理与逻辑修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
-        time.sleep(0.04)
-        _release_modifiers()
+        # 2026-10-28 第二次定性：Alt+Q 在 Claude Desktop / 新版记事本里复制
+        # 失败，是因为“单独 Alt”让目标程序进入菜单模式。之前先注入 Alt 抬起、
+        # 再发 Esc 退出菜单，但用户手指随后真正松开 Alt 时又是一次单独 Alt，
+        # 菜单又回来了，Ctrl+C 落在菜单上。现在：钩子在 Alt 仍按着时已插入
+        # 菜单屏蔽键（hook.py / replacer._send_mask_key），这里只需等用户
+        # 真正松开修饰键再复制，不再注入 Alt 抬起、不再发 Esc。
+        natural = _wait_modifiers_released(timeout=0.6)
         time.sleep(0.03)
-
-        # 2026-10-28 实测定性：托盘菜单触发（不经 Alt）复制正常，
-        # Alt+Q 触发复制失败——钩子只吞 Q，Alt 本尊照样到了目标
-        # 程序手里，程序把光秃秃的 Alt 当成菜单激活，焦点跑到菜单
-        # 上，Ctrl+C 就落不到选区里；菜单模式松开 Alt 也不退出，
-        # 所以重试也失败。复制前先发一个 Esc 退出菜单模式。
-        # 注意顺序：Esc 必须在释放修饰键之后发，否则会变成 Alt+Esc
-        # 切窗口。
-        _send_key(VK_ESCAPE)
-        time.sleep(0.02)
-        _send_key(VK_ESCAPE, is_up=True)
-        time.sleep(0.08)
-        _log_info("APP", "[SELECTION] Sent Esc to exit Alt menu mode")
+        _log_info("APP", f"[SELECTION] Modifiers released ({'natural' if natural else 'forced after timeout'})")
 
         # 只认序号变化后的剪贴板：Ctrl+C 没让剪贴板变化，说明这次
         # 根本没复制到选中文字。绝不能兜底读当前剪贴板——那是旧内容
@@ -349,6 +341,19 @@ def check_admin_elevation():
     检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)
     """
     if not IS_WINDOWS:
+        return
+    # 打包版的管理员权限由 exe 内嵌 manifest（spec 里 uac_admin=True）在
+    # 双击时交给系统处理，与“右键以管理员身份运行”走同一条路。不再自己
+    # runas 重启：2026-10-28 用户实测双击无法启动、右键管理员正常，唯一
+    # 差别就是这条“弹框 → runas → 父进程退出 → 子进程重启”的自提权链路。
+    # 源码运行（python main.py）没有 manifest，才保留下面的 runas 提权。
+    if getattr(sys, "frozen", False):
+        if _is_admin():
+            _log_info("APP", "elevation: already admin (manifest), no relaunch")
+            _stage("elevation-already-admin")
+        else:
+            _log_info("APP", "elevation: frozen build not admin (UAC off or standard user?), continuing non-elevated")
+            _stage("elevation-frozen-not-admin")
         return
     try:
         if not _is_admin():

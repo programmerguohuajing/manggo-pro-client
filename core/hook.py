@@ -14,6 +14,7 @@ from typing import Callable, Dict, Optional
 
 from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning
 from core.platform import IS_WINDOWS
+from core.replacer import _send_mask_key
 from core.hotkeys import (
     ACTION_ORDER,
     normalize_hotkeys,
@@ -62,6 +63,24 @@ class GlobalKeyboardHook:
         self.on_voice_input = on_voice_input
         self.on_open_main = on_open_main
         self.max_interval = max_interval
+
+        # 运行时状态只在这里初始化一次。之前这些写在 update_hotkeys 里，
+        # 设置页一保存就把 _running / hook_id / _thread 清零：钩子线程其实
+        # 还在跑，托盘“暂停”因 _running=False 直接 return 停不掉，“恢复”
+        # 又会再起一个钩子线程，导致同一组合键触发两次。
+        self.space_count = 0
+        self.last_space_time = 0.0
+        self.last_key_was_char = False
+        self.alt_pressed = False
+        self.shift_pressed = False
+        # 已触发、尚未抬起的组合键主键：按住不放时键盘自动重复的 keydown
+        # 只吞掉、不再重复触发回调。
+        self._held_hotkey_vks = set()
+
+        self.hook_id = None
+        self._thread = None
+        self._running = False
+        self._hook_proc_ref = None
         # 动作 -> (修饰键集合, 主键虚拟键码, 回调, 显示用组合键)
         self._hotkey_table = []
         self.hotkeys: Dict[str, str] = {}
@@ -90,17 +109,6 @@ class GlobalKeyboardHook:
         self._hotkey_table = table
         self.hotkeys = normalized
         _log_info("HOOK", f"Hotkeys updated: {normalized}")
-
-        self.space_count = 0
-        self.last_space_time = 0.0
-        self.last_key_was_char = False
-        self.alt_pressed = False
-        self.shift_pressed = False
-
-        self.hook_id = None
-        self._thread = None
-        self._running = False
-        self._hook_proc_ref = None
 
     def _hook_callback(self, nCode, wParam, lParam):
         if nCode >= 0:
@@ -134,6 +142,17 @@ class GlobalKeyboardHook:
                 # 之类的按键同时触发 Alt+Q 的动作。
                 for mods, vk, callback, label in self._hotkey_table:
                     if vk_code == vk and mods_down == mods:
+                        if vk_code in self._held_hotkey_vks:
+                            # 自动重复：吞掉，不重复触发
+                            return 1
+                        self._held_hotkey_vks.add(vk_code)
+                        if "Alt" in mods:
+                            # Alt 仍按着时插入菜单屏蔽键，Alt 抬起时目标程序
+                            # 不会进入菜单模式（见 replacer._send_mask_key）。
+                            try:
+                                _send_mask_key()
+                            except Exception as e:
+                                _log_warning("HOOK", f"mask key failed: {e}")
                         _log_info("HOOK", f">>> Hotkey {label} triggered! <<<")
                         if callback:
                             threading.Thread(target=callback, daemon=True).start()
@@ -164,6 +183,9 @@ class GlobalKeyboardHook:
                         _log_info("HOOK", f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
                     self.space_count = 0
                     self.last_space_time = 0.0
+            elif vk_code in self._held_hotkey_vks:
+                # 组合键主键抬起：复位，下次按下可再次触发
+                self._held_hotkey_vks.discard(vk_code)
 
         return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 

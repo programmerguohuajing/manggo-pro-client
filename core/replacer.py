@@ -28,6 +28,8 @@ VK_A = 0x41
 VK_C = 0x43
 VK_V = 0x56
 VK_ESCAPE = 0x1B
+# 未分配的虚拟键，用作“菜单屏蔽键”（与 AutoHotkey 的 #MenuMaskKey 默认值一致）
+VK_MASK = 0xE8
 
 INPUT_KEYBOARD = 1
 KEYEVENTF_EXTENDEDKEY = 0x0001
@@ -145,6 +147,49 @@ def _send_ctrl_c_input():
     n_up = user32.SendInput(2, up, ctypes.sizeof(INPUT))
     _log(f"SendInput Ctrl+C: down={n_down}/2 up={n_up}/2")
     return n_down + n_up
+
+
+def _send_mask_key():
+    """注入一次未分配虚拟键 0xE8 的按下+抬起（菜单屏蔽键）。
+
+    根因（2026-10-28）：Alt+Q 时钩子只吞 Q，Alt 照常到达目标程序；之后
+    Alt 一抬起（不管是我们注入的还是用户手指松开的），目标程序看到的
+    是“中间没有任何其他键的单独 Alt”，Claude Desktop（Electron 菜单栏）、
+    新版记事本（WinUI 访问键）会立刻进入菜单模式，随后的 Ctrl+C 落到
+    菜单上、复制失败。在 Alt 仍按着时插入一个无意义的键，Alt 抬起时就
+    不再是“单独 Alt”，任何程序都不会进菜单。0xE8 没有任何程序会响应。
+    必须在钩子回调里、return 1 之前同步调用，赶在用户松开 Alt 之前。
+    """
+    if not IS_WINDOWS:
+        return 0
+    def _inp(flags):
+        item = INPUT()
+        item.type = INPUT_KEYBOARD
+        item.u.ki = KEYBDINPUT(wVk=VK_MASK, wScan=0, dwFlags=flags, time=0, dwExtraInfo=None)
+        return item
+    seq = (INPUT * 2)(_inp(0), _inp(KEYEVENTF_KEYUP))
+    return user32.SendInput(2, seq, ctypes.sizeof(INPUT))
+
+
+def _wait_modifiers_released(timeout: float = 0.6) -> bool:
+    """等用户真正松开 Alt / Ctrl / Shift，再注入组合键。
+
+    之前的做法是直接注入修饰键抬起（_release_modifiers）：注入的 Alt 抬起
+    本身就是一次“单独 Alt”，会把目标程序切进菜单模式；用户手指稍后真正
+    松开时又来一次。改为等物理松开，超时仍按着才兜底强制释放（此时已有
+    菜单屏蔽键，强制释放也不会触发菜单）。返回 True 表示是自然松开的。
+    """
+    if not IS_WINDOWS:
+        return True
+    deadline = time.time() + timeout
+    mods = (VK_MENU, VK_CONTROL, VK_SHIFT)
+    while time.time() < deadline:
+        if not any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in mods):
+            return True
+        time.sleep(0.01)
+    _release_modifiers()
+    time.sleep(0.02)
+    return False
 
 
 def _send_ctrl_v():
