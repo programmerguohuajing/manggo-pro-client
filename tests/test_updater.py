@@ -206,6 +206,155 @@ class DownloadTest(unittest.TestCase):
                     updater.download("https://github.com/x/f.exe", dest)
             self.assertFalse(os.path.exists(dest))
 
+class IntegrityTest(unittest.TestCase):
+    """SHA256 校验、截断检测、读取超时切源（2026-10-28 review 问题3）。"""
+
+    def _resp(self, body, total=None):
+        resp = mock.MagicMock()
+        resp.headers.get.return_value = str(total if total is not None else len(body))
+        resp.read.side_effect = [body, b""]
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        return resp
+
+    def test_parse_two_space_and_star_formats(self):
+        text = (
+            "a" * 64 + "  ManggoProClient-Setup.exe\n"
+            + "b" * 64 + " *ManggoProClient-Windows-x64.zip\n"
+        )
+        sums = updater.parse_sha256sums(text)
+        self.assertEqual(sums["ManggoProClient-Setup.exe"], "a" * 64)
+        self.assertEqual(sums["ManggoProClient-Windows-x64.zip"], "b" * 64)
+
+    def test_parse_skips_invalid_lines(self):
+        text = "not-a-hash  f.exe\n" + "c" * 64 + "  good.exe\n\n"
+        self.assertEqual(updater.parse_sha256sums(text), {"good.exe": "c" * 64})
+
+    def test_truncated_download_fails_and_removes_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "f.exe")
+            # 每个候选地址都要给一个全新的响应对象，否则 side_effect
+            # 在第一个候选处耗尽，第二个候选会抛 StopIteration。
+            with mock.patch(
+                "urllib.request.urlopen",
+                side_effect=lambda *a, **k: self._resp(b"data", total=100),
+            ):
+                with self.assertRaises(updater.UpdateError):
+                    updater.download("https://github.com/x/f.exe", dest)
+            self.assertFalse(os.path.exists(dest))
+
+    def test_read_timeout_in_check_falls_back_to_next_source(self):
+        def fake_urlopen(request, timeout=None):
+            if request.full_url.startswith("https://api.github.com"):
+                resp = mock.MagicMock()
+                resp.read.side_effect = TimeoutError("read timed out")
+                resp.__enter__.return_value = resp
+                resp.__exit__.return_value = False
+                return resp
+            return _json_response(_api_payload())
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            release = updater.fetch_latest()
+        self.assertEqual(release["via"], "gh-proxy")
+
+    def test_read_timeout_in_download_falls_to_next_candidate(self):
+        seen = []
+
+        def fake_urlopen(request, timeout=None):
+            seen.append(request.full_url)
+            if len(seen) == 1:
+                resp = mock.MagicMock()
+                resp.read.side_effect = TimeoutError("read timed out")
+                resp.__enter__.return_value = resp
+                resp.__exit__.return_value = False
+                return resp
+            return self._resp(b"data")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "f.exe")
+            with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                out = updater.download("https://github.com/x/f.exe", dest)
+            with open(out, "rb") as f:
+                self.assertEqual(f.read(), b"data")
+        self.assertEqual(len(seen), 2)
+
+    def _verify_setup(self, tmp, sums_text):
+        import hashlib
+
+        dest = os.path.join(tmp, "ManggoProClient-Setup.exe")
+        digest = hashlib.sha256(b"abc").hexdigest()
+
+        def fake_download(url, dest_path, progress_cb=None):
+            with open(dest_path, "wb") as f:
+                f.write(b"abc")
+            return dest_path
+
+        return dest, digest, fake_download
+
+    def test_verify_success_keeps_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest, digest, fake_download = self._verify_setup(tmp, None)
+            sums = digest + "  ManggoProClient-Setup.exe\n"
+            with mock.patch.object(updater, "download", side_effect=fake_download):
+                with mock.patch.object(
+                    updater, "_fetch_text_candidates", return_value=sums
+                ):
+                    out = updater.download_and_verify(
+                        "https://github.com/x/f.exe", dest, "v1.0.15"
+                    )
+            self.assertEqual(out, dest)
+            self.assertTrue(os.path.exists(dest))
+
+    def test_verify_mismatch_deletes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest, digest, fake_download = self._verify_setup(tmp, None)
+            sums = "0" * 64 + "  ManggoProClient-Setup.exe\n"
+            with mock.patch.object(updater, "download", side_effect=fake_download):
+                with mock.patch.object(
+                    updater, "_fetch_text_candidates", return_value=sums
+                ):
+                    with self.assertRaises(updater.UpdateError):
+                        updater.download_and_verify(
+                            "https://github.com/x/f.exe", dest, "v1.0.15"
+                        )
+            self.assertFalse(os.path.exists(dest))
+
+    def test_verify_missing_entry_deletes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest, digest, fake_download = self._verify_setup(tmp, None)
+            sums = digest + "  something-else.exe\n"
+            with mock.patch.object(updater, "download", side_effect=fake_download):
+                with mock.patch.object(
+                    updater, "_fetch_text_candidates", return_value=sums
+                ):
+                    with self.assertRaises(updater.UpdateError):
+                        updater.download_and_verify(
+                            "https://github.com/x/f.exe", dest, "v1.0.15"
+                        )
+            self.assertFalse(os.path.exists(dest))
+
+    def test_verify_missing_tag_refuses_without_downloading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "f.exe")
+            with mock.patch.object(updater, "download") as m:
+                with self.assertRaises(updater.UpdateError):
+                    updater.download_and_verify("https://github.com/x/f.exe", dest, "")
+            m.assert_not_called()
+            self.assertFalse(os.path.exists(dest))
+
+    def test_sums_direct_404_is_definitive(self):
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen) as m:
+            with self.assertRaises(updater.UpdateError) as cm:
+                updater._fetch_text_candidates(
+                    "https://github.com/x/y/releases/download/v1.0.15/SHA256SUMS"
+                )
+            self.assertIn("未附带", str(cm.exception))
+        self.assertEqual(m.call_count, 1)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -238,6 +238,11 @@ jobs:
           pattern: ManggoProClient-*
           merge-multiple: true
           path: release-assets
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
       - name: Create release
         run: |
           ls -lh release-assets

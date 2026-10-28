@@ -46,10 +46,11 @@ class _UpdateWorker(QThread):
     progress = Signal(int)
     done = Signal(dict)
 
-    def __init__(self, mode, asset=None, parent=None):
+    def __init__(self, mode, asset=None, tag=None, parent=None):
         super().__init__(parent)
         self.mode = mode
         self.asset = asset
+        self.tag = tag
 
     def run(self):
         try:
@@ -60,11 +61,17 @@ class _UpdateWorker(QThread):
             asset = self.asset or {}
             name = asset.get("name", "ManggoProClient-update")
             if get_channel() == "安装版" and name.endswith(".exe"):
-                dest = os.path.join(tempfile.gettempdir(), name)
+                # 安装器会被以管理员权限运行，绝不能用固定文件名落到
+                # 公共临时目录（可被同用户其他程序预先占位替换）；
+                # mkdtemp 生成随机私有目录，文件名仍用安装包原名，
+                # 这样 SHA256SUMS 能按文件名比对。
+                dest_dir = tempfile.mkdtemp(prefix="ManggoProClient-Update-")
+                dest = os.path.join(dest_dir, name)
             else:
                 dest = os.path.join(updater.download_dir(), name)
-            updater.download(
-                asset.get("url", ""), dest, progress_cb=self.progress.emit
+            updater.download_and_verify(
+                asset.get("url", ""), dest, self.tag or "",
+                progress_cb=self.progress.emit,
             )
             self.done.emit({"ok": True, "path": dest})
         except Exception as e:
@@ -1143,8 +1150,8 @@ class SettingsWindow(QWidget):
         return container
 
     # ---------------- 在线更新 ----------------
-    def _start_update_worker(self, mode, asset=None):
-        self._update_worker = _UpdateWorker(mode, asset=asset, parent=self)
+    def _start_update_worker(self, mode, asset=None, tag=None):
+        self._update_worker = _UpdateWorker(mode, asset=asset, tag=tag, parent=self)
         self._update_worker.done.connect(self._on_update_done)
         if mode == "download":
             self._update_worker.progress.connect(self._on_download_progress)
@@ -1198,7 +1205,7 @@ class SettingsWindow(QWidget):
             return
         self.btn_check_update.setEnabled(False)
         self.lbl_update_status.setText(f"正在下载 {asset['name']}…")
-        self._start_update_worker("download", asset=asset)
+        self._start_update_worker("download", asset=asset, tag=release.get("tag", ""))
 
     def _handle_downloaded(self, path):
         import sys
