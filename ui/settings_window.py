@@ -367,7 +367,7 @@ class SettingsWindow(QWidget):
         self._search.textChanged.connect(self._apply_search)
         h_layout.addWidget(self._search)
 
-        self.btn_go_main = QPushButton("🖥️ 打开主工作台 (Alt+M)", header)
+        self.btn_go_main = QPushButton("打开主工作台 (Alt+M)", header)
         self.btn_go_main.setProperty("class", "SecondaryBtn")
         self.btn_go_main.clicked.connect(self.open_main_requested.emit)
         h_layout.addWidget(self.btn_go_main)
@@ -451,7 +451,7 @@ class SettingsWindow(QWidget):
         self.lbl_dirty.setVisible(False)
         f_layout.addWidget(self.lbl_dirty)
 
-        self.btn_test = QPushButton("⚡ 测试当前翻译", footer)
+        self.btn_test = QPushButton("测试当前翻译", footer)
         self.btn_test.setProperty("class", "SecondaryBtn")
         self.btn_test.clicked.connect(self._test_translation)
         f_layout.addWidget(self.btn_test)
@@ -639,7 +639,7 @@ class SettingsWindow(QWidget):
         self.cmb_engine = QComboBox()
         setup_modern_combobox(self.cmb_engine)
         self.cmb_engine.addItems([
-            "⚡ 内置极速通道 (免 API Key，国内毫秒级响应，开箱即用)",
+            "内置极速通道 (免 API Key，国内毫秒级响应，开箱即用)",
             "🧠 自定义大模型 Pro 通道 (DeepSeek / 通义千问 / OpenAI / 本地 Ollama)"
         ])
         self.cmb_engine.currentIndexChanged.connect(self._on_engine_mode_changed)
@@ -963,18 +963,18 @@ class SettingsWindow(QWidget):
         # 状态指示：Windows 专属项在其他平台上如实标注，不谎报就绪。
         from core.platform import IS_MAC, IS_WINDOWS
         if IS_WINDOWS:
-            hook_status = "🟢 正常监听中 (无需管理员权限)"
-            tts_status = "🟢 就绪 (Windows 原生秒发音)"
+            hook_status = "● 正常监听中 (无需管理员权限)"
+            tts_status = "就绪 (Windows 原生秒发音)"
         elif IS_MAC:
             hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
-            tts_status = "🟢 就绪 (macOS 系统 say)"
+            tts_status = "就绪 (macOS 系统 say)"
         else:
             hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
             tts_status = "🟡 需安装 espeak-ng 后可用"
         status_items = [
-            ("⚡ 键盘底层钩子 (WH_KEYBOARD_LL):", hook_status),
-            ("📖 本地历史记录数据库 (SQLite):", "🟢 已挂载 (history.sqlite3)"),
-            ("📷 离线文字识别引擎 (RapidOCR):", "🟢 就绪 (支持中英混排离线识别)"),
+            ("键盘底层钩子 (WH_KEYBOARD_LL):", hook_status),
+            ("本地历史记录数据库 (SQLite):", "已挂载 (history.sqlite3)"),
+            ("离线文字识别引擎 (RapidOCR):", "就绪 (支持中英混排离线识别)"),
             ("🔊 语音合成朗读 (TTS):", tts_status)
         ]
         for title, val in status_items:
@@ -1130,7 +1130,7 @@ class SettingsWindow(QWidget):
         if hasattr(self, "_hotkey_badges"):
             self._refresh_hotkey_rows()
         if hasattr(self, "btn_go_main"):
-            self.btn_go_main.setText(f"🖥️ 打开主工作台 ({self._hotkey_values['workbench']})")
+            self.btn_go_main.setText(f"打开主工作台 ({self._hotkey_values['workbench']})")
         self.chk_triple_space.setChecked(self.config.get("triple_space_enabled", True))
         inv = self.config.get("max_interval_ms", 750)
         self.spn_interval.setValue(inv)
@@ -1209,7 +1209,7 @@ class SettingsWindow(QWidget):
         save_config(new_cfg)
         self.config_changed.emit(new_cfg)
         if hasattr(self, "btn_go_main"):
-            self.btn_go_main.setText(f"🖥️ 打开主工作台 ({new_cfg['hotkeys']['workbench']})")
+            self.btn_go_main.setText(f"打开主工作台 ({new_cfg['hotkeys']['workbench']})")
         self.lbl_dirty.setVisible(False)
         self.lbl_status.setText("✓ 配置已保存并实时生效")
         QMessageBox.information(self, "保存成功", "所有偏好配置已成功保存并立即生效！")

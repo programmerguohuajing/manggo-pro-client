@@ -9,7 +9,9 @@ UI 展示层唯一色板与样式来源。
   settings_window.py 改为从这里导入，避免两份样式漂移。
 """
 
-# ---- 色板 ----
+# ---- 色板（方案 A · 留白 + 托盘图标橙色，2026-10-28 定稿） ----
+# 全应用只用两档文字色 + 一档细线 + 一个主题色；其余旧 token 全部
+# 收敛到这组值上，名字保留以免各窗口的引用处大面积改动。
 ACCENT = "#EA580C"
 ACCENT_DARK = "#C2410C"
 ACCENT_DEEP = "#9A3412"
@@ -18,29 +20,31 @@ ACCENT_SOFT_BORDER = "#FDBA74"
 ACCENT_PALE = "#FFEDD5"
 ACCENT_BG = "#FFFAF5"
 
-TEXT = "#111827"
-TEXT_PRIMARY = "#1F2937"
-TEXT_SECONDARY = "#374151"
-TEXT_MUTED = "#6B7280"
-TEXT_FAINT = "#9CA3AF"
-TEXT_GRAY600 = "#4B5563"
+INK = "#232120"
+SECONDARY = "#8A857C"
 
-BORDER = "#E5E7EB"
-BORDER_STRONG = "#D1D5DB"
+TEXT = "#232120"
+TEXT_PRIMARY = "#232120"
+TEXT_SECONDARY = "#232120"
+TEXT_MUTED = "#8A857C"
+TEXT_FAINT = "#8A857C"
+TEXT_GRAY600 = "#8A857C"
+
+BORDER = "#ECECEE"
+BORDER_STRONG = "#ECECEE"
 SURFACE = "#FFFFFF"
-SURFACE_MUTED = "#F9FAFB"
-SURFACE_GRAY = "#F3F4F6"
-APP_BG = "#F8F9FB"
+SURFACE_MUTED = "#F7F7F8"
+SURFACE_GRAY = "#F7F7F8"
+APP_BG = "#FFFFFF"
 
-# V2 高级感色板（设置页新布局专用）：暖纸底 + 墨色文字 + 暖灰次要文字，
-# 细分隔线代替色块卡片；琥珀只做点缀（当前项竖线、开关开启态、文字链、
-# 保存主按钮），主按钮按用户定保持琥珀色。
-INK = "#1C1917"
-PAPER = "#FAFAF9"
-WARM_GRAY = "#78716C"
-WARM_FAINT = "#A8A29E"
-HAIRLINE = "#E7E5E4"
-INPUT_FILL = "#F5F5F4"
+# V2 名字保留，值已是方案 A：白底 + 暖炭文字 + 暖灰次要文字，
+# 细分隔线代替色块卡片；橙色只做点缀（当前项竖线、开关开启态、
+# 文字链、保存主按钮）。
+PAPER = "#FFFFFF"
+WARM_GRAY = "#8A857C"
+WARM_FAINT = "#8A857C"
+HAIRLINE = "#ECECEE"
+INPUT_FILL = "#F7F7F8"
 
 SUCCESS = "#27AE60"
 SUCCESS_DARK = "#059669"
@@ -59,12 +63,13 @@ WARNING_BORDER = "#FDE68A"
 WARNING_TITLE = "#92400E"
 WARNING_TEXT = "#B45309"
 
-STAR = "#F39C12"
+STAR = "#EA580C"
+STAR_INACTIVE = "#D6D3D1"
 DARK_BG = "#1F2937"
 DARK_PANEL = "#374151"
-TOAST_TRANSLATING = "#61AFEF"
-TOAST_SUCCESS = "#98C379"
-TOAST_ERROR = "#E06C75"
+TOAST_TRANSLATING = "#EA580C"
+TOAST_SUCCESS = "#FFFFFF"
+TOAST_ERROR = "#FFFFFF"
 
 FONT_FAMILY = '"Microsoft YaHei", "Segoe UI", sans-serif'
 FONT_MONO = 'Consolas, "Segoe UI", monospace'
@@ -84,10 +89,10 @@ def badge_stylesheet(success: bool) -> str:
 
 
 def small_action_stylesheet() -> str:
-    """悬浮窗里 60x20 的朗读 / 复制小按钮（原内联样式，颜色收敛到色板）。"""
+    """悬浮窗里 60x20 的朗读 / 复制小按钮：安静文字按钮，暖灰字 + 细线边。"""
     return (
         f"font-size: 11px; border: 1px solid {BORDER_STRONG}; border-radius: 4px; "
-        f"color: {TEXT_SECONDARY};"
+        f"color: {SECONDARY}; background: transparent;"
     )
 
 
@@ -97,16 +102,12 @@ def ghost_button_stylesheet(color: str = TEXT_FAINT) -> str:
 
 
 def toast_stylesheet(status: str) -> str:
-    """Toast 深色气泡：三种状态只换文字色与图标色，结构不变。"""
-    if status == "translating":
-        bg, text = "rgba(40, 44, 52, 0.9)", TOAST_TRANSLATING
-    elif status == "success":
-        bg, text = "rgba(40, 52, 45, 0.9)", TOAST_SUCCESS
-    else:
-        bg, text = "rgba(52, 40, 40, 0.9)", TOAST_ERROR
+    """Toast 墨色小 pill：三种状态同一墨底，转译中图标取主题橙，
+    成功 / 失败图标为白色，状态只靠图标形状区分。"""
+    text = TOAST_TRANSLATING if status == "translating" else "#FFFFFF"
     return f"""
         QWidget {{
-            background-color: {bg};
+            background-color: rgba(35, 33, 32, 0.92);
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.15);
         }}
@@ -147,8 +148,21 @@ TRAY_MENU_STYLESHEET = f"""
 """
 
 # 通用窗口样式：卡片 / 按钮 class / 输入框 / 下拉弹层 / 复选框 / 滑块。
-# 只定义 class 选择器与输入类控件，不改窗口背景，避免套到悬浮卡片上变味。
+# 方案 A：窗口底统一纯白（QWidget 通用规则在前，class 与控件规则在后，
+# 同级选择器以后出现的为准，所以输入框、按钮等仍按各自规则着色）。
 WINDOW_STYLESHEET = f"""
+QWidget {{
+    background-color: {SURFACE};
+}}
+QSplitter::handle {{
+    background: {BORDER};
+}}
+QSplitter::handle:horizontal {{
+    width: 1px;
+}}
+QSplitter::handle:vertical {{
+    height: 1px;
+}}
 QFrame.CardFrame {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
@@ -180,7 +194,7 @@ QLineEdit, QComboBox, QSpinBox, QTextEdit {{
     padding: 7px 10px;
     font-size: 12px;
     color: {TEXT};
-    selection-background-color: #F97316;
+    selection-background-color: #EA580C;
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {{
     border: 1.5px solid {ACCENT};
@@ -307,7 +321,7 @@ QSlider::handle:horizontal:hover {{
 # ---- 设置窗口样式（原 settings_window.py 原样迁移，内容未改） ----
 SETTINGS_STYLESHEET = """
 QWidget#SettingsWindow {
-    background-color: #FAFAF9;
+    background-color: #FFFFFF;
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
@@ -323,16 +337,16 @@ QListWidget#NavList::item {
     margin: 2px 8px;
     padding-left: 12px;
     border-left: 2px solid transparent;
-    color: #78716C;
+    color: #8A857C;
     font-size: 14px;
 }
 QListWidget#NavList::item:hover {
-    color: #1C1917;
+    color: #232120;
 }
 QListWidget#NavList::item:selected {
     background-color: transparent;
     border-left: 2px solid #EA580C;
-    color: #1C1917;
+    color: #232120;
     font-weight: bold;
 }
 
@@ -351,41 +365,41 @@ QFrame.CardFrame:hover {
 QLabel.SectionHead {
     font-size: 12px;
     font-weight: 600;
-    color: #A8A29E;
+    color: #8A857C;
 }
 
 /* 标题规范 */
 QLabel.SectionTitle {
     font-size: 14px;
     font-weight: bold;
-    color: #1F2937;
+    color: #232120;
 }
 QLabel.SectionDesc {
     font-size: 12px;
-    color: #6B7280;
+    color: #8A857C;
     line-height: 1.4;
 }
 QLabel.FieldLabel {
     font-size: 12px;
     font-weight: 600;
-    color: #374151;
+    color: #232120;
 }
 
 /* 输入框与下拉框：V2 改成浅灰底无边框，聚焦时才出现琥珀边 */
 QLineEdit, QComboBox, QSpinBox, QTextEdit {
-    background-color: #F5F5F4;
-    border: 1px solid #E7E5E4;
+    background-color: #F7F7F8;
+    border: 1px solid #ECECEE;
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
-    color: #111827;
-    selection-background-color: #F97316;
+    color: #232120;
+    selection-background-color: #EA580C;
 }
 
 /* V2：滑块改细线 + 小圆 thumb，不再是粗彩条 */
 QSlider::groove:horizontal {
     height: 3px;
-    background-color: #E7E5E4;
+    background-color: #ECECEE;
     border-radius: 1px;
 }
 QSlider::handle:horizontal {
@@ -412,8 +426,8 @@ QComboBoxPrivateContainer {
 }
 QComboBox QAbstractItemView, QComboBox QListView {
     background-color: #FFFFFF;
-    color: #111827;
-    border: 1px solid #E5E7EB;
+    color: #232120;
+    border: 1px solid #ECECEE;
     border-radius: 8px;
     padding: 4px;
     outline: none;
@@ -423,7 +437,7 @@ QComboBox QAbstractItemView, QComboBox QListView {
 QComboBox QAbstractItemView::item, QComboBox QListView::item {
     min-height: 32px;
     padding: 6px 12px;
-    color: #1F2937;
+    color: #232120;
     background-color: #FFFFFF;
     border-radius: 6px;
     font-size: 12px;
@@ -458,16 +472,16 @@ QPushButton.PrimaryBtn:pressed {
 
 QPushButton.SecondaryBtn {
     background-color: #FFFFFF;
-    color: #374151;
+    color: #232120;
     font-size: 12px;
     font-weight: 500;
-    border: 1px solid #D1D5DB;
+    border: 1px solid #ECECEE;
     border-radius: 6px;
     padding: 6px 14px;
 }
 QPushButton.SecondaryBtn:hover {
-    background-color: #F3F4F6;
-    border-color: #9CA3AF;
+    background-color: #F7F7F8;
+    border-color: #8A857C;
 }
 
 QPushButton.TextBtn {
@@ -485,14 +499,14 @@ QPushButton.TextBtn:hover {
 /* 复选框样式 */
 QCheckBox {
     font-size: 13px;
-    color: #1F2937;
+    color: #232120;
     spacing: 8px;
 }
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
     border-radius: 4px;
-    border: 1px solid #D1D5DB;
+    border: 1px solid #ECECEE;
     background: #FFFFFF;
 }
 QCheckBox::indicator:hover {
@@ -507,7 +521,7 @@ QCheckBox::indicator:checked {
 /* 滑块样式 */
 QSlider::groove:horizontal {
     height: 6px;
-    background: #E5E7EB;
+    background: #ECECEE;
     border-radius: 3px;
 }
 QSlider::sub-page:horizontal {
