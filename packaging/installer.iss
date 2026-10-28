@@ -56,7 +56,12 @@ Name: "{group}\Manggo Pro Client"; Filename: "{app}\ManggoProClient.exe"
 Name: "{autodesktop}\Manggo Pro Client"; Filename: "{app}\ManggoProClient.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\ManggoProClient.exe"; Description: "{cm:LaunchProgram,Manggo Pro Client}"; Flags: nowait postinstall skipifsilent unchecked
+; 1.0.9 回归：打包版 manifest 改成 requireAdministrator 后，安装完成时
+; 勾选启动会报 CreateProcess failed code 740（740 = 需要提升，说明
+; [Run] 的启动上下文并非已提权）。改用 shellexec 走 ShellExecute：
+; 遇到 requireAdministrator 清单时它会像双击桌面图标一样弹 UAC，
+; 点“是”即正常启动，而不是 CreateProcess 那样直接失败。
+Filename: "{app}\ManggoProClient.exe"; Description: "{cm:LaunchProgram,Manggo Pro Client}"; Flags: nowait postinstall skipifsilent unchecked shellexec
 
 [UninstallRun]
 ; 卸载时删掉开机自启任务，避免卸载后登录时还尝试启动已不存在的程序。
