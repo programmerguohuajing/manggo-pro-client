@@ -53,46 +53,47 @@ class VoiceInputWindow(QWidget):
         self.card = QFrame(self)
         self.card.setStyleSheet(f"""
             QFrame {{
-                background-color: {theme.DARK_BG};
-                border-radius: 16px;
-                border: 1.5px solid {theme.ACCENT};
+                background-color: {theme.SURFACE};
+                border-radius: 12px;
+                border: 1px solid {theme.BORDER};
             }}
         """)
         c_layout = QHBoxLayout(self.card)
         c_layout.setContentsMargins(18, 12, 18, 12)
         c_layout.setSpacing(14)
 
-        # 麦克风图标与波形指示
-        self.lbl_icon = QLabel("🎙️", self.card)
-        self.lbl_icon.setFont(QFont("Segoe UI Emoji", 24))
+        # 波形指示（方案 A：主题橙波形条，不用 emoji）
+        self.lbl_icon = QLabel("▃▅▇▅▃", self.card)
+        self.lbl_icon.setFont(QFont("Segoe UI", 18, QFont.Bold))
+        self.lbl_icon.setStyleSheet(f"color: {theme.ACCENT};")
         c_layout.addWidget(self.lbl_icon)
 
         # 文字状态
         v_info = QVBoxLayout()
         v_info.setSpacing(4)
         self.lbl_title = QLabel("语音输入就绪 (Alt+Space)", self.card)
-        self.lbl_title.setStyleSheet(f"color: {theme.SURFACE}; font-weight: bold; font-size: 13px;")
+        self.lbl_title.setStyleSheet(f"color: {theme.INK}; font-weight: bold; font-size: 13px;")
         v_info.addWidget(self.lbl_title)
 
         self.lbl_hint = QLabel("正在启动语音引擎，请对准麦克风说话...", self.card)
-        self.lbl_hint.setStyleSheet(f"color: {theme.TEXT_FAINT}; font-size: 11px;")
+        self.lbl_hint.setStyleSheet(f"color: {theme.SECONDARY}; font-size: 11px;")
         v_info.addWidget(self.lbl_hint)
         c_layout.addLayout(v_info, 1)
 
-        # 关闭按钮
+        # 关闭按钮（安静样式，悬停只加浅底）
         btn_close = QPushButton("✕", self.card)
         btn_close.setFixedSize(26, 26)
         btn_close.setStyleSheet(f"""
             QPushButton {{
-                background: {theme.DARK_PANEL};
-                color: {theme.BORDER_STRONG};
+                background: transparent;
+                color: {theme.SECONDARY};
                 border: none;
                 border-radius: 13px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
-                background: {theme.DANGER};
-                color: white;
+                background: {theme.SURFACE_MUTED};
+                color: {theme.INK};
             }}
         """)
         btn_close.clicked.connect(self.hide)

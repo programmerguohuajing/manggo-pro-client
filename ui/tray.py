@@ -50,19 +50,19 @@ class TrayManager(QObject):
         menu = QMenu()
         menu.setStyleSheet(theme.TRAY_MENU_STYLESHEET)
 
-        act_main = menu.addAction("🖥️ 桌面翻译工作台 (Alt+M)")
+        act_main = menu.addAction("桌面翻译工作台	Alt+M")
         act_main.triggered.connect(self.open_main_requested.emit)
 
-        act_sel = menu.addAction("📝 划选文本翻译 (Alt+Q)")
+        act_sel = menu.addAction("划选文本翻译	Alt+Q")
         act_sel.triggered.connect(self.open_selection_requested.emit)
 
-        act_snip = menu.addAction("📷 截图 OCR 识别 (Alt+W)")
+        act_snip = menu.addAction("截图 OCR 识别	Alt+W")
         act_snip.triggered.connect(self.open_snipping_requested.emit)
 
-        act_voice = menu.addAction("🎤 语音输入与听写 (Alt+Space)")
+        act_voice = menu.addAction("语音输入与听写	Alt+Space")
         act_voice.triggered.connect(self.open_voice_requested.emit)
 
-        act_history = menu.addAction("📖 历史记录 & 生词本")
+        act_history = menu.addAction("历史记录 & 生词本")
         act_history.triggered.connect(self.open_history_requested.emit)
 
         menu.addSeparator()
@@ -73,10 +73,10 @@ class TrayManager(QObject):
         self.act_toggle = menu.addAction("")
         self.act_toggle.triggered.connect(self._on_toggle)
 
-        act_settings = menu.addAction("⚙️ 软件偏好设置 (API & 参数)...")
+        act_settings = menu.addAction("软件偏好设置 (API & 参数)...")
         act_settings.triggered.connect(self.open_settings_requested.emit)
 
-        act_console = menu.addAction("🪵 诊断控制台 (运行日志)...")
+        act_console = menu.addAction("诊断控制台 (运行日志)...")
         act_console.triggered.connect(self.open_console_requested.emit)
 
         menu.addSeparator()
@@ -88,7 +88,7 @@ class TrayManager(QObject):
 
     def _refresh_status(self):
         state = "运行中" if self.enabled else "已暂停"
-        self.act_status.setText(f"⚡ 快捷转译：{state} · {self.engine_label}")
+        self.act_status.setText(f"Manggo Pro · {state}")
         self.act_toggle.setText("暂停三次空格转译" if self.enabled else "启用三次空格转译")
         self.tray_icon.setToolTip(
             f"Manggo Pro Client\n快捷转译：{state}\n翻译通道：{self.engine_label}\n双击打开设置"

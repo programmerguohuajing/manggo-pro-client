@@ -35,7 +35,7 @@ class FloatToast(QWidget):
 
     def show_message(self, status: str, message: str, duration_ms: int = 1500):
         # 区分状态颜色与图标，配色见 ui/theme.py 的 toast_stylesheet
-        icon = {"translating": "⚡", "success": "✓"}.get(status, "✕")
+        icon = {"translating": "●", "success": "✓"}.get(status, "✕")
         self.setStyleSheet(theme.toast_stylesheet(status))
         self.label.setText(f"{icon} {message}")
         self.adjustSize()
