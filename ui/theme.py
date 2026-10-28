@@ -293,7 +293,6 @@ QCheckBox::indicator:hover {{
 QCheckBox::indicator:checked {{
     background-color: {ACCENT};
     border-color: {ACCENT};
-    image: none;
 }}
 QSlider::groove:horizontal {{
     height: 6px;
@@ -519,7 +518,30 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     background-color: #EA580C;
     border-color: #EA580C;
-    image: none;
+}
+
+/* 热键行：只能用类选择器挂边框——行内裸样式会把 border/padding 漏到子 label 上，
+   造成每行出现两条分隔线、行高被撑大（2026-10-28 实测）。 */
+QFrame.HotkeyRow {
+    background: transparent;
+    border-bottom: 1px solid #ECECEE;
+}
+/* 顶栏/底栏：同样只能用对象名挂边框，行内裸样式会漏给搜索框和按钮。 */
+QFrame#SettingsHeader {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #ECECEE;
+}
+QFrame#SettingsFooter {
+    background-color: #FFFFFF;
+    border-top: 1px solid #ECECEE;
+}
+/* 搜索框：常驻 2px 透明边框，焦点时只换颜色不改尺寸，底边不再被裁。 */
+QLineEdit.SearchBox {
+    border: 2px solid transparent;
+}
+QLineEdit.SearchBox:focus {
+    border: 2px solid #EA580C;
+    background: #FFFFFF;
 }
 
 /* 注意：滑块样式只用上面 V2 那组（细线 + #D6D3D1 拇指边框，无彩条）；

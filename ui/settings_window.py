@@ -3,6 +3,7 @@
 采用现代卡片式与侧边导航布局，具备精致的芒果琥珀主题视觉、服务商一键预设与状态监控。
 """
 import os
+import sys
 import json
 import subprocess
 import tempfile
@@ -394,6 +395,27 @@ class HotkeyEdit(QLineEdit):
         super().focusOutEvent(event)
 
 
+def _checked_indicator_stylesheet() -> str:
+    """选中态 √ 图片规则：白 √（assets/check_white.png）画在橙底上。
+
+    打包版走 _MEIPASS/assets，源码运行走仓库根目录 assets；spec 已把整个
+    assets 目录打进包，无需额外 datas。注意：指示器一旦被样式接管就不再画
+    原生 √，这张图必须能加载，否则选中态仍是纯橙方块。
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Qt 样式表的 image: url() 不解析 file://，必须用裸路径；加引号防空格
+    #（如 Program Files），反斜杠统一成正斜杠。
+    path = os.path.join(base, "assets", "check_white.png").replace("\\", "/")
+    return f"""
+QCheckBox::indicator:checked {{
+    image: url("{path}");
+}}
+"""
+
+
 class SettingsWindow(QWidget):
     config_changed = Signal(dict)
     open_main_requested = Signal()
@@ -404,7 +426,7 @@ class SettingsWindow(QWidget):
         self.setWindowTitle("Manggo Pro - 偏好设置")
         self.resize(860, 640)
         self.setMinimumSize(760, 600)
-        self.setStyleSheet(SETTINGS_STYLESHEET)
+        self.setStyleSheet(SETTINGS_STYLESHEET + _checked_indicator_stylesheet())
 
         self.config = load_config()
         # _load_values 期间的控件赋值不算“未保存更改”。
@@ -424,7 +446,7 @@ class SettingsWindow(QWidget):
         # 状态管线，不属于纯布局范围；通道信息在引擎分区第一行可见。）
         header = QFrame(self)
         header.setFixedHeight(64)
-        header.setStyleSheet(f"background-color: {theme.PAPER}; border-bottom: 1px solid {theme.HAIRLINE};")
+        header.setObjectName("SettingsHeader")
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(28, 0, 28, 0)
 
@@ -440,6 +462,7 @@ class SettingsWindow(QWidget):
         h_layout.addStretch()
 
         self._search = QLineEdit(header)
+        self._search.setProperty("class", "SearchBox")
         self._search.setPlaceholderText("搜索设置")
         self._search.setFixedWidth(200)
         self._search.textChanged.connect(self._apply_search)
@@ -519,7 +542,7 @@ class SettingsWindow(QWidget):
         # 3. 底部操作栏（主按钮按用户定保持琥珀色 PrimaryBtn）
         footer = QFrame(self)
         footer.setFixedHeight(62)
-        footer.setStyleSheet(f"background-color: {theme.PAPER}; border-top: 1px solid {theme.HAIRLINE};")
+        footer.setObjectName("SettingsFooter")
         f_layout = QHBoxLayout(footer)
         f_layout.setContentsMargins(28, 0, 28, 0)
 
@@ -845,9 +868,9 @@ class SettingsWindow(QWidget):
         for action, key_text, name, desc in rows:
             # V2：行不再是浅灰小卡片，改成透明行 + 底部一根细分隔线。
             row = QFrame()
-            row.setStyleSheet(f"background: transparent; border: none; border-bottom: 1px solid {theme.HAIRLINE}; padding: 10px 2px;")
+            row.setProperty("class", "HotkeyRow")
             r_l = QVBoxLayout(row)
-            r_l.setContentsMargins(10, 8, 10, 8)
+            r_l.setContentsMargins(2, 10, 2, 10)
             r_l.setSpacing(6)
 
             # 顶部行：功能名称 + 快捷键徽章
