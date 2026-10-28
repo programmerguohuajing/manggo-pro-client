@@ -115,6 +115,37 @@ def _send_ctrl_c():
     user32.keybd_event(VK_CONTROL, 0x1D, KEYEVENTF_KEYUP, 0)
     time.sleep(0.04)
 
+def _send_ctrl_c_input():
+    """划选复制专用 Ctrl+C：走 SendInput，不走老 keybd_event。
+
+    根因（2026-10-28，用户实测定性）：keybd_event 发出的 Ctrl+C 在 Claude
+    Desktop 和新版 WinUI 记事本里完全没产生复制（失败后原地 Ctrl+V 什么
+    都粘不出来），而同一路径在 Antigravity 里正常、手动 Ctrl+C 在哪都正常。
+    keybd_event 是已被取代的老 API；SendInput 才是系统输入流期望的注入
+    方式。分两批发送（按下组合 → 停 50ms → 抬起组合），让目标程序看到
+    Ctrl 按住的状态下 C 到达。仅供划选翻译使用；就地替换的三次空格流
+    程目前工作正常，继续走老 _send_ctrl_c，不动它。
+    """
+    if not IS_WINDOWS:
+        return 0
+    ctrl_scan = user32.MapVirtualKeyW(VK_CONTROL, MAPVK_VK_TO_VSC)
+    c_scan = user32.MapVirtualKeyW(VK_C, MAPVK_VK_TO_VSC)
+
+    def _inp(vk, scan, flags):
+        item = INPUT()
+        item.type = INPUT_KEYBOARD
+        item.u.ki = KEYBDINPUT(wVk=vk, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=None)
+        return item
+
+    down = (INPUT * 2)(_inp(VK_CONTROL, ctrl_scan, 0), _inp(VK_C, c_scan, 0))
+    n_down = user32.SendInput(2, down, ctypes.sizeof(INPUT))
+    time.sleep(0.05)
+    up = (INPUT * 2)(_inp(VK_C, c_scan, KEYEVENTF_KEYUP), _inp(VK_CONTROL, ctrl_scan, KEYEVENTF_KEYUP))
+    n_up = user32.SendInput(2, up, ctypes.sizeof(INPUT))
+    _log(f"SendInput Ctrl+C: down={n_down}/2 up={n_up}/2")
+    return n_down + n_up
+
+
 def _send_ctrl_v():
     _release_modifiers()
     time.sleep(0.02)

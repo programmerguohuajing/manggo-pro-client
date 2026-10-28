@@ -28,7 +28,7 @@ if IS_WINDOWS:
 
 from core.hotkeys import normalize_hotkeys
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
 from core.hook import GlobalKeyboardHook
 from core.logging import error as _log_error, info as _log_info
 from core.ocr import ocr_engine
@@ -182,30 +182,47 @@ class AppCoordinator(QObject):
         _release_modifiers()
         time.sleep(0.03)
 
-        old_seq = user32.GetClipboardSequenceNumber()
-        _send_ctrl_c()
-
         # 只认序号变化后的剪贴板：Ctrl+C 没让剪贴板变化，说明这次
         # 根本没复制到选中文字。绝不能兜底读当前剪贴板——那是旧内容
         # （比如之前复制过的 "Test"），会被当成选中文字翻译出来，
         # 正是本次“译的不是选中文字”的根因。抓不到就老实报错，
         # 让失败可诊断，而不是拿旧剪贴板冒充成功。
+        #
+        # 2026-10-28：注入改走 SendInput（见 _send_ctrl_c_input），且失败
+        # 时再试一次；读取失败不再直接 break，而是继续轮询到时限——
+        # 剪贴板被占住时第一次 paste 可能失败，第二次能读到。
         captured = ""
-        start = time.time()
-        while time.time() - start < 0.8:
-            if user32.GetClipboardSequenceNumber() != old_seq:
-                try:
-                    captured = pyperclip.paste().strip()
-                except Exception:
-                    pass
+        ever_changed = False
+        for attempt in (1, 2):
+            if attempt == 2:
+                reason = "copied but paste empty/failed" if ever_changed else "changed nothing"
+                _log_info("APP", f"[SELECTION] Retry Ctrl+C (attempt 1 {reason})")
+                time.sleep(0.1)
+            old_seq = user32.GetClipboardSequenceNumber()
+            _send_ctrl_c_input()
+            start = time.time()
+            while time.time() - start < 0.8:
+                if user32.GetClipboardSequenceNumber() != old_seq:
+                    ever_changed = True
+                    try:
+                        text = pyperclip.paste().strip()
+                    except Exception:
+                        text = ""
+                    if text:
+                        captured = text
+                        break
+                time.sleep(0.02)
+            if captured:
                 break
-            time.sleep(0.02)
 
         if captured:
             _log_info("APP", f"[SELECTION] Captured: {repr(captured[:30])}")
             self.selection_translate_signal.emit(captured)
+        elif ever_changed:
+            _log_info("APP", "[SELECTION] Failed: clipboard changed but paste empty/failed")
+            self.notify_signal.emit("failed", "已复制但未能读取剪贴板内容")
         else:
-            _log_info("APP", "[SELECTION] Failed: clipboard unchanged after Ctrl+C")
+            _log_info("APP", "[SELECTION] Failed: clipboard unchanged after Ctrl+C (SendInput, 2 attempts)")
             self.notify_signal.emit("failed", "未检测到鼠标选中文本")
 
     @Slot(str)
