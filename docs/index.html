@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manggo Pro Client — 桌面全功能翻译与听写工作台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav">
+    <div class="logo">🥭 Manggo <span>Pro</span> Client</div>
+    <a href="#features">功能</a>
+    <a href="#hotkeys">快捷键</a>
+    <a href="#download">下载</a>
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client">GitHub</a>
+    <a class="lang" href="en.html">English</a>
+  </nav>
+
+  <header class="hero">
+    <h1>桌面全功能<span>翻译</span>与听写工作台</h1>
+    <p>轻量、高性能、免侵入：划选翻译、截图 OCR、语音听写、输入框就地转译，一个托盘全部搞定。</p>
+    <div class="btns">
+      <a class="btn btn-primary" href="https://github.com/programmerguohuajing/manggo-pro-client/releases/latest">下载最新版</a>
+      <a class="btn btn-secondary" href="https://github.com/programmerguohuajing/manggo-pro-client">查看源码</a>
+    </div>
+  </header>
+
+  <section id="features">
+    <h2>功能一览</h2>
+    <p class="sec-desc">覆盖翻译、听写、查词的完整工作流，全部本地运行，历史与生词自动存档。</p>
+    <div class="grid">
+      <div class="card"><h3>输入框就地转译</h3><p>微信、Word、聊天框里打完中文，连按 3 次空格，自动消除空格就地替换为英文。</p></div>
+      <div class="card"><h3>划选文本悬浮翻译</h3><p>鼠标划选任意文本，Alt + Q 呼出悬浮翻译卡片，支持朗读、复制、生词本收藏。</p></div>
+      <div class="card"><h3>全屏截图 OCR 翻译</h3><p>全屏十字光标框选，RapidOCR 本地离线识别文字并自动对照翻译。</p></div>
+      <div class="card"><h3>桌面翻译工作台</h3><p>沉浸式双栏长文本中英互译，支持多段翻译、一键朗读与复制。</p></div>
+      <div class="card"><h3>语音听写输入</h3><p>Alt + Space 唤起麦克风拾音气泡，实时转文字就地打字上屏。</p></div>
+      <div class="card"><h3>历史记录与生词本</h3><p>本地 SQLite 自动存档，随时回顾翻译历史与收藏的生词。</p></div>
+      <div class="card"><h3>离线语音朗读</h3><p>调用 Windows 原生 SAPI 语音合成，秒级离线发音，不消耗任何流量。</p></div>
+      <div class="card"><h3>多翻译通道</h3><p>内置免 Key 极速通道，一键预设 DeepSeek、通义千问、OpenAI、本地 Ollama。</p></div>
+      <div class="card"><h3>现代化偏好设置</h3><p>卡片式 + 侧边导航布局，连击灵敏度滑块、风格模板、一键测试。</p></div>
+    </div>
+  </section>
+
+  <section id="hotkeys">
+    <h2>快捷键速查</h2>
+    <p class="sec-desc">各快捷键相互独立，不冲突。</p>
+    <table>
+      <tr><th>功能</th><th>快捷键</th></tr>
+      <tr><td>输入框就地转译（中文 → 英文）</td><td><kbd>连续 3 次空格</kbd></td></tr>
+      <tr><td>鼠标划选文本翻译</td><td><kbd>Alt + Q</kbd></td></tr>
+      <tr><td>全屏截图 OCR 翻译</td><td><kbd>Alt + W</kbd></td></tr>
+      <tr><td>呼出桌面翻译工作台</td><td><kbd>Alt + M</kbd></td></tr>
+      <tr><td>语音听写输入</td><td><kbd>Alt + Space</kbd></td></tr>
+      <tr><td>呼出偏好设置中心</td><td><kbd>双击托盘图标</kbd></td></tr>
+      <tr><td>工作台提交翻译</td><td><kbd>Ctrl + Enter</kbd></td></tr>
+    </table>
+  </section>
+
+  <section id="download">
+    <h2>下载与安装</h2>
+    <p class="sec-desc">在 Releases 页选择对应平台的包。Windows 安装版自带安装向导，装完即用。</p>
+    <div class="grid">
+      <div class="card"><h3>Windows</h3><p>安装版 <code>ManggoProClient-Setup.exe</code>，或便携版 <code>ManggoProClient-Windows-x64.zip</code>，解压双击即用。</p></div>
+      <div class="card"><h3>macOS</h3><p><code>ManggoProClient-macOS-Intel.dmg</code> / <code>ManggoProClient-macOS-AppleSilicon.dmg</code>，未签名，首次请右键 → 打开放行一次。</p></div>
+      <div class="card"><h3>Linux</h3><p><code>manggo-pro-client_*.deb</code> 或 <code>ManggoProClient-Linux-x64.tar.gz</code>，解压直接运行。</p></div>
+    </div>
+    <p style="margin-top:24px;">源码运行（需要 Python 3.12）：</p>
+    <pre><code>pip install -r requirements.txt
+pythonw main.py   # 后台静默运行，无黑框
+python main.py    # 调试排查，带控制台日志</code></pre>
+    <p class="note">程序会自动提权并保证单实例；退出点托盘右键 → 退出。日志与诊断见托盘菜单 → 诊断控制台，或程序目录旁的 debug_app.log。</p>
+  </section>
+
+  <footer>
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client">GitHub 仓库</a> ·
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client/releases/latest">最新 Release</a> ·
+    <a href="en.html">English version</a>
+  </footer>
+</div>
+</body>
+</html>

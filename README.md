@@ -1,5 +1,7 @@
 # Manggo Pro Client (全功能桌面级翻译与听写工作台)
 
+[English](README_EN.md) | 中文
+
 轻量、高性能、免侵入的桌面全功能翻译与语音工作台。
 
 ---

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manggo Pro Client — Desktop translation &amp; dictation workbench</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav">
+    <div class="logo">🥭 Manggo <span>Pro</span> Client</div>
+    <a href="#features">Features</a>
+    <a href="#hotkeys">Hotkeys</a>
+    <a href="#download">Download</a>
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client">GitHub</a>
+    <a class="lang" href="index.html">中文</a>
+  </nav>
+
+  <header class="hero">
+    <h1>Desktop <span>translation</span> &amp; dictation workbench</h1>
+    <p>Lightweight, fast, non-intrusive: selection translation, screenshot OCR, voice dictation, and in-place input-box translation — all from one tray icon.</p>
+    <div class="btns">
+      <a class="btn btn-primary" href="https://github.com/programmerguohuajing/manggo-pro-client/releases/latest">Download latest</a>
+      <a class="btn btn-secondary" href="https://github.com/programmerguohuajing/manggo-pro-client">View source</a>
+    </div>
+  </header>
+
+  <section id="features">
+    <h2>Features</h2>
+    <p class="sec-desc">A complete translate–dictate–review workflow that runs locally; history and vocabulary are archived automatically.</p>
+    <div class="grid">
+      <div class="card"><h3>In-place input-box translation</h3><p>Type Chinese in WeChat, Word, or chat boxes, press Space 3 times, and the text is replaced in place with English.</p></div>
+      <div class="card"><h3>Selection popup translation</h3><p>Highlight any text, press Alt + Q, and a popup card appears with read-aloud, copy, and vocabulary-book save.</p></div>
+      <div class="card"><h3>Fullscreen screenshot OCR</h3><p>Draw a crosshair box over the screen; RapidOCR recognizes text locally and offline, then translates it side by side.</p></div>
+      <div class="card"><h3>Desktop translation workbench</h3><p>Immersive two-column workbench for long Chinese-English texts, with multi-paragraph translation and one-click read-aloud.</p></div>
+      <div class="card"><h3>Voice dictation input</h3><p>Alt + Space brings up a microphone indicator; speech is transcribed and typed in place in real time.</p></div>
+      <div class="card"><h3>History &amp; vocabulary book</h3><p>Local SQLite archive — review past translations and saved words anytime.</p></div>
+      <div class="card"><h3>Offline speech synthesis</h3><p>Uses the Windows native SAPI engine: instant offline pronunciation, no network usage.</p></div>
+      <div class="card"><h3>Multiple translation channels</h3><p>Built-in key-free fast channel, plus one-click presets for DeepSeek, Qwen, OpenAI, and local Ollama.</p></div>
+      <div class="card"><h3>Modern preferences center</h3><p>Card + sidebar navigation layout, triple-space sensitivity slider, style templates, one-click testing.</p></div>
+    </div>
+  </section>
+
+  <section id="hotkeys">
+    <h2>Hotkey cheat sheet</h2>
+    <p class="sec-desc">All hotkeys are independent and conflict-free.</p>
+    <table>
+      <tr><th>Action</th><th>Hotkey</th></tr>
+      <tr><td>In-place translation in input boxes (Chinese → English)</td><td><kbd>Space x3</kbd></td></tr>
+      <tr><td>Translate highlighted text</td><td><kbd>Alt + Q</kbd></td></tr>
+      <tr><td>Fullscreen screenshot OCR translation</td><td><kbd>Alt + W</kbd></td></tr>
+      <tr><td>Open the desktop translation workbench</td><td><kbd>Alt + M</kbd></td></tr>
+      <tr><td>Voice dictation input</td><td><kbd>Alt + Space</kbd></td></tr>
+      <tr><td>Open the preferences center</td><td><kbd>Double-click tray icon</kbd></td></tr>
+      <tr><td>Submit a translation in the workbench</td><td><kbd>Ctrl + Enter</kbd></td></tr>
+    </table>
+  </section>
+
+  <section id="download">
+    <h2>Download &amp; install</h2>
+    <p class="sec-desc">Pick the package for your platform on the Releases page. The Windows installer includes a setup wizard.</p>
+    <div class="grid">
+      <div class="card"><h3>Windows</h3><p>Installer <code>ManggoProClient-Setup.exe</code>, or portable <code>ManggoProClient-Windows-x64.zip</code> — unzip and double-click.</p></div>
+      <div class="card"><h3>macOS</h3><p><code>ManggoProClient-macOS-Intel.dmg</code> / <code>ManggoProClient-macOS-AppleSilicon.dmg</code>; unsigned — on first launch, right-click → Open to allow it once.</p></div>
+      <div class="card"><h3>Linux</h3><p><code>manggo-pro-client_*.deb</code> or <code>ManggoProClient-Linux-x64.tar.gz</code> — extract and run directly.</p></div>
+    </div>
+    <p style="margin-top:24px;">Run from source (Python 3.12 required):</p>
+    <pre><code>pip install -r requirements.txt
+pythonw main.py   # silent background run, no console
+python main.py    # debugging, with console log</code></pre>
+    <p class="note">The app auto-elevates and enforces a single instance; quit from tray right-click → Quit. Logs and diagnostics: tray menu → Diagnostics console, or debug_app.log next to the program.</p>
+  </section>
+
+  <footer>
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client">GitHub repository</a> ·
+    <a href="https://github.com/programmerguohuajing/manggo-pro-client/releases/latest">Latest release</a> ·
+    <a href="index.html">中文版</a>
+  </footer>
+</div>
+</body>
+</html>
