@@ -58,6 +58,11 @@ Name: "{autodesktop}\Manggo Pro Client"; Filename: "{app}\ManggoProClient.exe"; 
 [Run]
 Filename: "{app}\ManggoProClient.exe"; Description: "{cm:LaunchProgram,Manggo Pro Client}"; Flags: nowait postinstall skipifsilent unchecked
 
+[UninstallRun]
+; 卸载时删掉开机自启任务，避免卸载后登录时还尝试启动已不存在的程序。
+; 任务不存在时 schtasks 会报错退出，但不影响卸载继续。
+Filename: "{sys}\schtasks.exe"; Parameters: "/DELETE /TN ""ManggoProClient"" /F"; Flags: runhidden
+
 ; 卸载侧同样拦：Inno 卸载器本身不会关应用，进程活着时卸载删不掉
 ; 被占用的 DLL，卸载完残留文件 + 残留进程，下次安装必撞 code 5。
 ; 拦在卸载之前，让用户先从托盘退出，比卸完再报错强。

@@ -49,6 +49,7 @@ _stage("import-hotkeys-done")
 from core.translator import TranslationManager
 _stage("import-translator-done")
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
+from core.autostart import is_autostart_enabled, set_autostart_enabled
 _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook
 _stage("import-hook-done")
@@ -319,6 +320,15 @@ class AppCoordinator(QObject):
         # 组合键改动即时生效：只重建判定表，不用重启钩子线程；
         # 钩子暂停中（托盘暂停）改的键，恢复时按新表工作。
         self.hook.update_hotkeys(new_cfg.get("hotkeys"))
+        # 开机自启（Windows 任务计划）：只在目标状态与实际不一致时
+        # 动 schtasks；失败时提示，设置页下次打开仍以实际状态为准。
+        if IS_WINDOWS:
+            try:
+                want_auto = bool(new_cfg.get("auto_start", False))
+                if is_autostart_enabled() != want_auto and not set_autostart_enabled(want_auto):
+                    self.notify_signal.emit("failed", "开机自启设置失败（需要管理员权限）")
+            except Exception:
+                pass
         self.tray.set_engine_label(self._engine_label())
 
     def quit_app(self):

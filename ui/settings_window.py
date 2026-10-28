@@ -77,6 +77,7 @@ DEFAULT_CONFIG = {
     "engine": "free",  # "free" 或 "llm"
     "hotkeys": dict(DEFAULT_HOTKEYS),
     "triple_space_enabled": True,
+    "auto_start": False,
     "max_interval_ms": 750,
     "llm_api_url": "https://api.deepseek.com/v1",
     "llm_api_key": "",
@@ -527,6 +528,8 @@ class SettingsWindow(QWidget):
         self.txt_key.textChanged.connect(lambda _: self._mark_dirty())
         self.txt_model.textChanged.connect(lambda _: self._mark_dirty())
         self.txt_prompt.textChanged.connect(lambda: self._mark_dirty())
+        if hasattr(self, "chk_auto_start"):
+            self.chk_auto_start.toggled.connect(lambda _: self._mark_dirty())
 
     def _set_update_dot(self, visible: bool):
         """关于项右上角的琥珀小圆点：只在检查到新版后出现，
@@ -955,6 +958,20 @@ class SettingsWindow(QWidget):
         update_row.addWidget(self.lbl_update_status, 1)
         c_l.addLayout(update_row)
 
+        # 开机自启（仅 Windows）：任务计划方式，登录时静默提权启动，
+        # 不走注册表 Run（打包版带 manifest，Run 会在每次开机时弹 UAC）。
+        # 初始勾选状态由 _load_values 按任务计划实际状态回填，这里只建控件。
+        from core.platform import IS_WINDOWS as _IS_WIN
+        if _IS_WIN:
+            auto_row = QHBoxLayout()
+            self.chk_auto_start = QCheckBox("开机自启", card)
+            auto_row.addWidget(self.chk_auto_start)
+            lbl_auto_desc = QLabel("登录时通过任务计划静默启动（最高权限，不弹 UAC）", card)
+            lbl_auto_desc.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 12px;")
+            lbl_auto_desc.setWordWrap(True)
+            auto_row.addWidget(lbl_auto_desc, 1)
+            c_l.addLayout(auto_row)
+
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setStyleSheet(f"color: {theme.BORDER};")
@@ -1145,11 +1162,22 @@ class SettingsWindow(QWidget):
         self.txt_model.setText(self.config.get("llm_model", "deepseek-chat"))
         self.txt_prompt.setPlainText(self.config.get("llm_prompt", DEFAULT_CONFIG["llm_prompt"]))
 
+        # 开机自启以任务计划实际状态为准（任务可能在设置外被删），
+        # 查不到时退回配置文件里的值。
+        chk_auto = getattr(self, "chk_auto_start", None)
+        if chk_auto is not None:
+            try:
+                from core.autostart import is_autostart_enabled
+                chk_auto.setChecked(is_autostart_enabled())
+            except Exception:
+                chk_auto.setChecked(bool(self.config.get("auto_start", False)))
+
     def _gather_config(self) -> dict:
         return {
             "engine": "llm" if self.cmb_engine.currentIndex() == 1 else "free",
             "hotkeys": dict(getattr(self, "_hotkey_values", normalize_hotkeys(self.config.get("hotkeys")))),
             "triple_space_enabled": self.chk_triple_space.isChecked(),
+            "auto_start": self.chk_auto_start.isChecked() if hasattr(self, "chk_auto_start") else bool(self.config.get("auto_start", False)),
             "max_interval_ms": self.spn_interval.value(),
             "llm_api_url": self.txt_url.text().strip(),
             "llm_api_key": self.txt_key.text().strip(),
