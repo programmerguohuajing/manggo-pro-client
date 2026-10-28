@@ -2,6 +2,7 @@
 核心替换模块：负责在 Windows 当前焦点输入框中执行退格、选词、翻译和就地粘贴替换
 针对 Electron / Chromium / Claude Desktop / ProseMirror 及原生 Windows 控件全兼容深度优化
 """
+import os
 import time
 import re
 import threading
@@ -77,10 +78,17 @@ class INPUT(ctypes.Structure):
     ]
 
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
+kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
 if IS_WINDOWS:
     user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
     user32.SendInput.restype = wintypes.UINT
     user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+    # 下面两个是黑名单新用的 API，其他模块没用过，设 argtypes 不影响别处。
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
 
 def _release_modifiers():
     """彻底释放物理与逻辑修饰键 (Alt, Ctrl, Shift)"""
@@ -234,6 +242,87 @@ def _safe_copy(text: str, retries: int = 3):
         except Exception:
             time.sleep(0.03)
 
+# 三次空格黑名单（2026-10-28 review 问题4）：终端里无选区的 Ctrl+C 是
+# 中断信号（会中断正在跑的程序），绝不能往终端里发按键；密码框同理避开。
+# VS Code 内嵌终端与编辑器同属一个窗口，类名/进程无法区分，不在覆盖内。
+_TERMINAL_CLASSES = {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}
+_TERMINAL_EXES = {
+    "windowsterminal.exe", "wt.exe", "conhost.exe", "cmd.exe",
+    "powershell.exe", "pwsh.exe", "alacritty.exe", "wezterm-gui.exe",
+    "wezterm.exe", "kitty.exe", "mintty.exe", "hyper.exe",
+}
+ES_PASSWORD = 0x20
+GWL_STYLE = -16
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hwndActive", wintypes.HWND),
+        ("hwndFocus", wintypes.HWND),
+        ("hwndCapture", wintypes.HWND),
+        ("hwndMenuOwner", wintypes.HWND),
+        ("hwndMoveSize", wintypes.HWND),
+        ("hwndCaret", wintypes.HWND),
+    ]
+
+if IS_WINDOWS:
+    # GUITHREADINFO 在此处才定义，故 argtypes 在这里设（前面 windll 块设不了）。
+    user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(GUITHREADINFO)]
+    user32.GetGUIThreadInfo.restype = wintypes.BOOL
+
+
+def _fg_process_name(pid):
+    """取前台窗口进程的可执行文件名；拿不到返回 ''（调用方放行）。"""
+    if not IS_WINDOWS or not pid:
+        return ""
+    try:
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(512)
+            size = wintypes.DWORD(512)
+            if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                return os.path.basename(buf.value).lower()
+            return ""
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return ""
+
+
+def _is_blacklisted_window(hwnd, cls_name, pid, thread_id):
+    """终端 / 密码框返回 True（跳过就地转译，不发任何按键）。
+
+    终端：类名或进程名命中即算。密码框：用 GetGUIThreadInfo 拿该线程
+    的焦点控件，是 Edit 类且带 ES_PASSWORD 样式即算。任一 API 失败都
+    放行（fail-open）：误拦会让正常输入框无法转译，漏拦只影响密码框
+    那种 Ctrl+C 本来就复制不到内容的场景。
+    """
+    if not IS_WINDOWS:
+        return False
+    try:
+        if (cls_name or "") in _TERMINAL_CLASSES:
+            return True
+        if _fg_process_name(pid) in _TERMINAL_EXES:
+            return True
+        info = GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if user32.GetGUIThreadInfo(thread_id, ctypes.byref(info)) and info.hwndFocus:
+            focus_cls = ctypes.create_unicode_buffer(256)
+            if user32.GetClassNameW(info.hwndFocus, focus_cls, 256):
+                if focus_cls.value in ("Edit", "RichEdit20W", "RichEdit20A", "RICHEDIT50W"):
+                    style = user32.GetWindowLongW(info.hwndFocus, GWL_STYLE)
+                    if style & ES_PASSWORD:
+                        return True
+        return False
+    except Exception:
+        return False
+
+
 class InPlaceReplacer:
     """
     就地转译替换器
@@ -261,6 +350,12 @@ class InPlaceReplacer:
 
     def _do_replace_flow(self):
         self.is_busy = True
+        # 剪贴板恢复策略：只有流程中途放弃、且用户此后没动过剪贴板时，
+        # 才把备份写回去；成功粘贴、或窗口切换后留给用户手动粘贴时不恢复。
+        keep_clipboard = False
+        have_backup = False
+        original_clipboard = ""
+        last_flow_seq = 0
         try:
             # 获取当前前台窗口信息，用于精准诊断
             fg = user32.GetForegroundWindow()
@@ -269,8 +364,15 @@ class InPlaceReplacer:
             cls_buf = ctypes.create_unicode_buffer(512)
             user32.GetClassNameW(fg, cls_buf, 512)
             pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+            fg_thread = user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
             _log(f"Triggered! Foreground: class='{cls_buf.value}', hwnd={fg:#x}, pid={pid.value}")
+
+            # 黑名单先行：在发任何按键、碰剪贴板之前就拦下来。
+            if _is_blacklisted_window(fg, cls_buf.value, pid.value, fg_thread):
+                _log("Aborted: foreground window is blacklisted (terminal/password)")
+                if self.notify_callback:
+                    self.notify_callback("failed", "当前窗口不支持就地转译（终端或密码框），已跳过")
+                return
 
             # 1. 微延时确保前台焦点应用完全接收按键，并彻底释放所有修饰键
             time.sleep(0.04)
@@ -278,11 +380,12 @@ class InPlaceReplacer:
             time.sleep(0.02)
 
             # 备份用户剪贴板
-            original_clipboard = ""
             try:
                 original_clipboard = pyperclip.paste()
+                have_backup = True
             except Exception:
                 pass
+            last_flow_seq = user32.GetClipboardSequenceNumber()
 
             # 策略一：首先尝试行内向前选区 (Shift + Home)
             # 注：不预先盲目发送退格键，因为 Shift+Home 会同时选中末尾的空格，
@@ -307,6 +410,7 @@ class InPlaceReplacer:
                 if captured_para and self.contains_chinese(captured_para) and len(captured_para) < 2000:
                     captured = captured_para
 
+            last_flow_seq = user32.GetClipboardSequenceNumber()
             clean_text = captured.strip() if captured else ""
             _log(f"Final clean_text: {len(clean_text)} chars, has_chinese={self.contains_chinese(clean_text)}")
 
@@ -329,13 +433,30 @@ class InPlaceReplacer:
             # 4. 将英文写入剪贴板并通过就地粘贴替换已选中文本（同时覆盖原中文及末尾空格）
             _safe_copy(translated_en)
             time.sleep(0.05)
+            # 粘贴前再校验前台窗口：翻译耗时里用户可能切走了窗口，
+            # 直接 Ctrl+V 会把译文粘到别处。切走了就不自动粘贴，
+            # 译文留在剪贴板供用户手动粘贴。
+            if user32.GetForegroundWindow() != fg:
+                _log("Aborted paste: foreground window changed during translation")
+                if self.notify_callback:
+                    self.notify_callback("failed", "窗口已切换，未自动粘贴，译文已保留在剪贴板")
+                keep_clipboard = True
+                return
             _send_ctrl_v()
             _log("Sent Ctrl+V to paste English translation successfully")
             # 翻译后的文本保留在剪贴板中供用户直接使用，绝不在后台强制回滚导致粘贴竞争失败
+            keep_clipboard = True
 
         except Exception as e:
             _log(f"Exception during replace flow: {e}")
             if self.notify_callback:
                 self.notify_callback("error", f"转译异常: {e}")
         finally:
+            if have_backup and not keep_clipboard:
+                try:
+                    # 只有用户此后没动过剪贴板时才恢复，避免覆盖用户新复制的内容。
+                    if user32.GetClipboardSequenceNumber() == last_flow_seq:
+                        pyperclip.copy(original_clipboard)
+                except Exception:
+                    pass
             self.is_busy = False

@@ -75,6 +75,10 @@ class GlobalKeyboardHook:
         self._hook_proc_ref = None
         # 已按下未抬起的主键集合：按住自动重复只吞不触发，抬起时清除。
         self._down_hotkeys = set()
+        # 空格是否正按住：低层钩子拿不到重复标记，靠这个状态过滤
+        # 按住空格的自动重复（此前只有热键有防重复，空格没有，按住
+        # 空格会直接攒满 3 次触发就地转译）。
+        self._space_down = False
         self.update_hotkeys(hotkeys)
 
     def update_hotkeys(self, hotkeys: Optional[Dict[str, str]]) -> None:
@@ -159,7 +163,8 @@ class GlobalKeyboardHook:
                         return 1
 
                 # 连续三次空格就地转译 (无 Alt / Ctrl 干扰)
-                if vk_code == VK_SPACE and not alt_down and not ctrl_down:
+                if vk_code == VK_SPACE and not alt_down and not ctrl_down and not self._space_down:
+                    self._space_down = True
                     delta = now - self.last_space_time if self.last_space_time > 0 else 0
                     if self.last_space_time > 0 and delta <= self.max_interval:
                         self.space_count += 1
@@ -188,6 +193,8 @@ class GlobalKeyboardHook:
                 # 主键抬起：清除按住态，下次按下可重新触发。
                 if self._down_hotkeys:
                     self._down_hotkeys = {k for k in self._down_hotkeys if k[1] != vk_code}
+                if vk_code == VK_SPACE:
+                    self._space_down = False
 
         return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 
