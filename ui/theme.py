@@ -417,6 +417,11 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
     border: 2px solid #EA580C;
     background-color: #FFFFFF;
 }
+/* 微调框上下按钮：加宽到 24px，让 ▲▼ 上下分明、不挤成一小点 */
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 24px;
+    border: none;
+}
 QComboBox::drop-down {
     border: none;
     width: 26px;

@@ -416,6 +416,25 @@ QCheckBox::indicator:checked {{
 """
 
 
+def _combo_arrow_stylesheet() -> str:
+    """下拉箭头图片规则：QComboBox 一旦被样式表接管（::drop-down 写了
+    规则），Qt 就不再画默认 ▼，必须显式给 ::down-arrow 配图，否则
+    字段右侧只有一块空白（离屏复现已证实）。路径解析与 √ 规则同款：
+    打包版 _MEIPASS/assets，源码版仓库根 assets；spec 已打包整个 assets。"""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(base, "assets", "chevron_down.png").replace("\\", "/")
+    return f"""
+QComboBox::down-arrow {{
+    image: url("{path}");
+    width: 14px;
+    height: 14px;
+}}
+"""
+
+
 class SettingsWindow(QWidget):
     config_changed = Signal(dict)
     open_main_requested = Signal()
@@ -426,7 +445,7 @@ class SettingsWindow(QWidget):
         self.setWindowTitle("Manggo Pro - 偏好设置")
         self.resize(860, 640)
         self.setMinimumSize(760, 600)
-        self.setStyleSheet(SETTINGS_STYLESHEET + _checked_indicator_stylesheet())
+        self.setStyleSheet(SETTINGS_STYLESHEET + _checked_indicator_stylesheet() + _combo_arrow_stylesheet())
 
         self.config = load_config()
         # _load_values 期间的控件赋值不算“未保存更改”。
@@ -690,12 +709,15 @@ class SettingsWindow(QWidget):
         self.slider_interval = QSlider(Qt.Horizontal)
         self.slider_interval.setRange(300, 900)
         self.slider_interval.setSingleStep(20)
+        # 滑块本体离屏实测只有 15px 高，thumb 实绘 18px（16px + 1px 边框 x2），
+        # 底边被裁；26px 高给 thumb 留足上下边距。
+        self.slider_interval.setMinimumHeight(26)
 
         self.spn_interval = QSpinBox()
         self.spn_interval.setRange(300, 900)
         self.spn_interval.setSingleStep(20)
         self.spn_interval.setSuffix(" ms")
-        self.spn_interval.setFixedWidth(85)
+        self.spn_interval.setFixedWidth(110)
 
         # 联动
         self.slider_interval.valueChanged.connect(self.spn_interval.setValue)
