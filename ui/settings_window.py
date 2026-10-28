@@ -142,7 +142,13 @@ _PROMPT_MIGRATION = {
 }
 
 
+# 配置文件损坏时备份的路径（供启动时提示一次）；load_config 在损坏时设置，
+# 成功时不碰它（同进程内两次加载也不会把已报过的损坏清掉）。
+CONFIG_CORRUPT_BACKUP = None
+
+
 def load_config() -> dict:
+    global CONFIG_CORRUPT_BACKUP
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -152,17 +158,56 @@ def load_config() -> dict:
                 old_prompt = cfg.get("llm_prompt", "")
                 if old_prompt in _PROMPT_MIGRATION:
                     cfg["llm_prompt"] = _PROMPT_MIGRATION[old_prompt]
+                # DPAPI 解密：无前缀的旧明文原样返回；解不开返回 ""。
+                from core.keystore import unprotect
+
+                if cfg.get("llm_api_key"):
+                    cfg["llm_api_key"] = unprotect(cfg["llm_api_key"])
                 return cfg
         except Exception:
-            pass
+            # 损坏的配置文件绝不静默丢弃：备份后用默认值启动，
+            # 备份路径记下来供启动提示（Key/热键可从备份找回）。
+            try:
+                import time
+
+                backup = CONFIG_FILE + ".corrupt-" + time.strftime("%Y%m%d%H%M%S")
+                os.replace(CONFIG_FILE, backup)
+                CONFIG_CORRUPT_BACKUP = backup
+            except Exception:
+                pass
+            _log_error("CONFIG", "config.json damaged, backed up, defaults used")
     return DEFAULT_CONFIG.copy()
 
-def save_config(cfg: dict):
+
+def save_config(cfg: dict) -> bool:
+    """原子保存：写同目录临时文件再 os.replace，失败返回 False。
+
+    以前直接覆盖写、异常吞掉、界面仍报“保存成功”，且中途崩溃会留
+    半个文件；现在写失败调用方必须报失败，不再假装成功。
+    API Key 落盘前用 DPAPI 加密（Windows；已加密的值不重复加密，
+    非 Windows 原样写）。内存里的配置仍是明文，只文件里是密文。
+    """
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        from core.keystore import protect
+
+        to_save = dict(cfg)
+        key = to_save.get("llm_api_key", "")
+        if key and not key.startswith("DPAPI:"):
+            to_save["llm_api_key"] = protect(key)
+        tmp = CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(to_save, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, CONFIG_FILE)
+        return True
     except Exception as e:
         _log_error("CONFIG", f"Error saving config: {e}")
+        try:
+            os.remove(CONFIG_FILE + ".tmp")
+        except Exception:
+            pass
+        return False
 
 class TranslationTestDialog(QDialog):
     """
@@ -834,7 +879,12 @@ class SettingsWindow(QWidget):
 
         # API Key
         h_key_title = QHBoxLayout()
-        h_key_title.addWidget(_create_label("API Key (密钥安全加密存储):", "FieldLabel"))
+        # Windows 上 Key 落盘是 DPAPI 密文（见 core/keystore），非 Windows
+        # 是明文；标签按平台说实话，以前无条件写“安全加密存储”是假话。
+        h_key_title.addWidget(_create_label(
+            "API Key (DPAPI 加密存储):" if IS_WINDOWS else "API Key:",
+            "FieldLabel",
+        ))
         h_key_title.addStretch()
 
         self.btn_toggle_key = QPushButton("👁️ 显示密钥")
@@ -1340,6 +1390,12 @@ class SettingsWindow(QWidget):
                 chk_auto.setChecked(is_autostart_enabled())
             except Exception:
                 chk_auto.setChecked(bool(self.config.get("auto_start", False)))
+            # 便携版禁用勾选（渠道守卫在 core/autostart 里，界面这里同步禁用，
+            # 避免用户勾上又被拒绝的困惑）。
+            if get_channel() != "安装版":
+                chk_auto.setChecked(False)
+                chk_auto.setEnabled(False)
+                chk_auto.setToolTip("仅安装版支持开机自启：便携版位于用户可写目录，提权自启有风险")
 
     def _gather_config(self) -> dict:
         return {
@@ -1409,8 +1465,11 @@ class SettingsWindow(QWidget):
         if err:
             QMessageBox.warning(self, "热键无效", err + "，请重新修改后再保存。")
             return
+        if not save_config(new_cfg):
+            QMessageBox.critical(self, "保存失败", "配置未能写入磁盘（见日志），请检查目录权限后重试。")
+            self.lbl_status.setText("❌ 配置保存失败")
+            return
         self.config = new_cfg
-        save_config(new_cfg)
         self.config_changed.emit(new_cfg)
         if hasattr(self, "btn_go_main"):
             self.btn_go_main.setText(f"打开主工作台 ({new_cfg['hotkeys']['workbench']})")

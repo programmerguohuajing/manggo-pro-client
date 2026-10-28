@@ -50,6 +50,7 @@ from core.translator import TranslationManager
 _stage("import-translator-done")
 from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
 from core.autostart import is_autostart_enabled, set_autostart_enabled
+from core.version import get_channel
 _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook
 _stage("import-hook-done")
@@ -121,6 +122,16 @@ class AppCoordinator(QObject):
 
         # 2. UI 组件全矩阵初始化
         self.toast = FloatToast()
+        # 配置文件损坏时 load_config 已备份并记下路径，这里提示一次
+        # （备份里能找回 Key 与热键，不要静默用默认值把用户蒙过去）。
+        from ui import settings_window as _settings_mod
+
+        if getattr(_settings_mod, "CONFIG_CORRUPT_BACKUP", None):
+            self.toast.show_message(
+                "failed",
+                f"配置文件损坏，已用默认值启动，旧文件已备份：{_settings_mod.CONFIG_CORRUPT_BACKUP}",
+            )
+            _settings_mod.CONFIG_CORRUPT_BACKUP = None
         self.float_win = FloatResultWindow()
         self.snipping_widget = SnippingWidget()
         self.voice_win = VoiceInputWindow()
@@ -352,7 +363,9 @@ class AppCoordinator(QObject):
         self.hook.update_hotkeys(new_cfg.get("hotkeys"))
         # 开机自启（Windows 任务计划）：只在目标状态与实际不一致时
         # 动 schtasks；失败时提示，设置页下次打开仍以实际状态为准。
-        if IS_WINDOWS:
+        # 开机自启只对安装版动任务计划（便携版在 settings 里已禁用勾选，
+        # 这里是第二道守卫：旧配置里残留的 True 也不再尝试创建任务）。
+        if IS_WINDOWS and get_channel() == "安装版":
             try:
                 want_auto = bool(new_cfg.get("auto_start", False))
                 if is_autostart_enabled() != want_auto and not set_autostart_enabled(want_auto):

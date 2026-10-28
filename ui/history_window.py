@@ -67,6 +67,12 @@ class HistoryWindow(QWidget):
         self.btn_clear.clicked.connect(self._clear_unstarred)
         h_filter.addWidget(self.btn_clear)
 
+        # 手动导入原版历史（2026-10-28 review）：以前启动时自动导入，
+        # 清空后重启又全回来；现在只由用户点按钮触发。
+        self.btn_import = QPushButton("从原版 Manggo 导入", self)
+        self.btn_import.clicked.connect(self._import_from_original)
+        h_filter.addWidget(self.btn_import)
+
         layout.addLayout(h_filter)
 
         # 2. 数据表格（细线行列表，无行号）
@@ -102,6 +108,24 @@ class HistoryWindow(QWidget):
         lbl_tip = QLabel("提示：双击单元格可快速复制该项内容。点击星标可直接将条目加入/移出生词本。", self)
         lbl_tip.setStyleSheet(f"color: {theme.SECONDARY}; font-size: 11px;")
         layout.addWidget(lbl_tip)
+
+        # 复制反馈行：双击复制不再弹模态框，改在这里显示一行状态。
+        self.lbl_status = QLabel("", self)
+        self.lbl_status.setStyleSheet(f"color: {theme.SECONDARY}; font-size: 11px;")
+        layout.addWidget(self.lbl_status)
+
+    def showEvent(self, event):
+        # 每次打开都刷新：以前只在创建时刷一次，之后再打开是旧数据。
+        super().showEvent(event)
+        self.refresh_data()
+
+    def _import_from_original(self):
+        n = db.sync_from_original_manggo()
+        if n > 0:
+            QMessageBox.information(self, "导入完成", f"从原版 Manggo 导入了 {n} 条新记录。")
+        else:
+            QMessageBox.information(self, "导入完成", "没有新记录（原版数据库不存在或记录都已导入）。")
+        self.refresh_data()
 
     def refresh_data(self):
         keyword = self.txt_search.text()
@@ -158,7 +182,7 @@ class HistoryWindow(QWidget):
             item = self.table.item(row, col)
             if item:
                 pyperclip.copy(item.text())
-                QMessageBox.information(self, "已复制", f"已复制到剪贴板:\n{item.text()[:50]}")
+                self.lbl_status.setText(f"已复制：{item.text()[:30]}")
 
     def _clear_unstarred(self):
         if QMessageBox.question(self, "确认清空", "是否确定清空未收藏的常规翻译历史？（生词本中的星标词汇将被完整保留）") == QMessageBox.Yes:

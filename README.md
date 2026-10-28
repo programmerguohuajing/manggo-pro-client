@@ -61,3 +61,9 @@ pip install -r requirements.txt
   Program Files / /Applications / /usr/share 后，日志、配置、历史
   在用户目录：Windows 是 `%APPDATA%\ManggoProClient`，
   mac/Linux 是 `~/.config/manggo-pro-client`）
+
+## 🖥️ 平台支持与隐私说明
+
+- **Windows 才有的功能**：全局热键、连续 3 次空格就地转译、划选翻译都依赖 Windows 键盘钩子，只在 Windows 上可用；macOS / Linux 包照常发布，但这三项不可用（主工作台、截图 OCR、历史记录在三平台都可用）。
+- **免费通道会把文本发给第三方**：内置免费通道依次调用有道公共接口、Google 网页翻译中继、MyMemory 公开接口，选中文本与 OCR 文本会发给这三家（大模型通道只发给你自己填的 API 地址；大模型失败时默认不回退到免费通道，可在设置中开启）。
+- **更新校验**：每个 Release 附带 SHA256SUMS，更新下载后会按文件名比对 SHA256，不一致或缺失都拒绝安装；安装版更新包会先落到随机临时目录，不用固定文件名。

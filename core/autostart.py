@@ -112,6 +112,16 @@ def set_autostart_enabled(enabled: bool) -> bool:
     """
     if not IS_WINDOWS:
         return False
+    if enabled:
+        # 便携版绝不允许开机自启（2026-10-28 review）：便携包通常解压在
+        # 用户可写目录，最高权限任务会在下次登录以管理员身份跑它，
+        # 同用户的程序替换 exe 就能提权；只有安装版（Program Files，
+        # 非管理员写不进去）才配得上最高权限自启。删除任务不受限。
+        from core.version import get_channel
+
+        if get_channel() != "安装版":
+            _log_error("AUTOSTART", "portable channel refuses autostart task")
+            return False
     try:
         if not enabled:
             return _run_schtasks(["/DELETE", "/TN", TASK_NAME, "/F"]).returncode == 0

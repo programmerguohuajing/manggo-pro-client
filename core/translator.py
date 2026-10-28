@@ -126,6 +126,13 @@ class LLMTranslator(BaseTranslator):
 
         if target_lang == "auto":
             target_lang = "English" if is_predominantly_chinese(clean_text) else "Simplified Chinese"
+        else:
+            # 主窗口下拉框传来的是语言码（en/zh-CN），提示词里要用人话。
+            target_lang = {
+                "en": "English",
+                "zh-CN": "Simplified Chinese",
+                "zh": "Simplified Chinese",
+            }.get(target_lang, target_lang)
 
         sys_prompt = f"{self.style_prompt} Please translate into {target_lang}."
 

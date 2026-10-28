@@ -35,10 +35,17 @@ class HistoryDB:
                 )
             """)
             conn.commit()
-        # 初始化时自动从系统原版 Manggo 导入历史记录
-        self.sync_from_original_manggo()
+        # 注意：以前这里自动从原版 Manggo 导入历史，导致清空后下次启动
+        # 记录又全部回来，且未经询问就读另一个程序的数据（2026-10-28
+        # review）。现在只手动触发：历史窗口的“从原版 Manggo 导入”按钮
+        # 调用 sync_from_original_manggo()。
 
     def sync_from_original_manggo(self) -> int:
+        """手动从原版 Manggo 导入历史，返回新导入条数。
+
+        仅由历史窗口按钮调用。去重一次查全量已有（原文，译文）对，
+        不再逐条 SELECT；原版库不存在或表结构不对时返回 0 并记日志。
+        """
         orig_db = os.path.expandvars(r"%APPDATA%\Manggo\Manggo\history\history.sqlite3")
         if not os.path.exists(orig_db):
             return 0
@@ -49,23 +56,30 @@ class HistoryDB:
                 my_cur = my_conn.cursor()
                 o_cur.execute("SELECT type, source_text, result_text, source_language, target_language, created_at FROM history_entries")
                 rows = o_cur.fetchall()
+                existing = {
+                    (r[0], r[1])
+                    for r in my_cur.execute(
+                        "SELECT source_text, target_text FROM history"
+                    ).fetchall()
+                }
                 for r in rows:
                     stype, src, tgt, slang, tlang, created_at_ms = r
                     if not src or not tgt:
                         continue
                     clean_src = src.strip()
                     clean_tgt = tgt.strip()
-                    my_cur.execute("SELECT id FROM history WHERE source_text = ? AND target_text = ?", (clean_src, clean_tgt))
-                    if not my_cur.fetchone():
-                        try:
-                            dt = datetime.datetime.fromtimestamp(created_at_ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
-                        except Exception:
-                            dt = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        my_cur.execute("""
-                            INSERT INTO history (source_text, target_text, source_type, source_lang, target_lang, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        """, (clean_src, clean_tgt, f"manggo_{stype}", slang or 'auto', tlang or 'auto', dt))
-                        imported += 1
+                    if (clean_src, clean_tgt) in existing:
+                        continue
+                    try:
+                        dt = datetime.datetime.fromtimestamp(created_at_ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        dt = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    my_cur.execute("""
+                        INSERT INTO history (source_text, target_text, source_type, source_lang, target_lang, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (clean_src, clean_tgt, f"manggo_{stype}", slang or 'auto', tlang or 'auto', dt))
+                    existing.add((clean_src, clean_tgt))
+                    imported += 1
                 my_conn.commit()
         except Exception as e:
             _log_error("DB", f"Error syncing original manggo history: {e}")

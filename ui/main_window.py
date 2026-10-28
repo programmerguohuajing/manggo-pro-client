@@ -149,9 +149,20 @@ class MainWindow(QWidget):
             self.cmb_src.setCurrentIndex(1)
             self.cmb_tgt.setCurrentIndex(1)
 
+    # 下拉框索引 -> 翻译器语言码（2026-10-28 review：以前 do_translate
+    # 根本不读这两个框，选了等于没选）。
+    _SRC_MAP = {0: "auto", 1: "zh-CN", 2: "en"}
+    _TGT_MAP = {0: "auto", 1: "en", 2: "zh-CN"}
+
     def do_translate(self):
         src_text = self.txt_source.toPlainText().strip()
         if not src_text:
+            return
+
+        src_lang = self._SRC_MAP.get(self.cmb_src.currentIndex(), "auto")
+        tgt_lang = self._TGT_MAP.get(self.cmb_tgt.currentIndex(), "auto")
+        if src_lang != "auto" and src_lang == tgt_lang:
+            self.txt_target.setPlainText("源语言与目标语言相同，无需翻译。")
             return
 
         # 翻译放后台线程：离线回退时主窗口不再冻住。
@@ -159,8 +170,10 @@ class MainWindow(QWidget):
 
         self.btn_translate.setEnabled(False)
         self.txt_target.setPlainText("翻译中…")
+        self._pending_langs = (src_lang, tgt_lang)
         start_translate(
-            self, self._translate_workers, self.translator_mgr.translate,
+            self, self._translate_workers,
+            lambda t: self.translator_mgr.translate(t, src_lang, tgt_lang),
             src_text, self._on_translate_done,
         )
 
@@ -176,8 +189,12 @@ class MainWindow(QWidget):
         tgt_text = payload["result"]
         self.txt_target.setPlainText(tgt_text)
 
-        # 保存到数据库
-        db.add_record(src_text, tgt_text, source_type="main_win")
+        # 保存到数据库（带上用户选的语言方向，不再一律写 auto/en）。
+        src_lang, tgt_lang = getattr(self, "_pending_langs", ("auto", "auto"))
+        db.add_record(
+            src_text, tgt_text, source_type="main_win",
+            source_lang=src_lang, target_lang=tgt_lang,
+        )
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and (event.modifiers() & Qt.ControlModifier):

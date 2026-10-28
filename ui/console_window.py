@@ -2,7 +2,10 @@
 诊断控制台：把原来只能翻 debug_app.log 文件的日志搬到界面里。
 
 - 不自动弹窗，只从托盘菜单打开；打开后每 500ms 轮询日志缓冲追加新记录。
-- 级别过滤：默认“INFO 及以上”（钩子逐键 DEBUG 默认不显示，选“全部”才可见）。
+- 级别过滤：默认“INFO 及以上”（DEBUG 选“全部”才可见）。
+- 新行判定用记录序号（seq），不用下标：缓冲是环形，满了会顶掉旧记录，
+  下标法在满缓冲后永远取不到新行（2026-10-28 review）；序号只增不减，
+  顶掉旧记录也不影响新行判定。
 - 只读展示：复制全部 / 清空显示（只清内存缓冲，不删日志文件）/ 打开日志文件。
 - 不接任何翻译、钩子、数据库逻辑，纯展示层。
 """
@@ -25,7 +28,7 @@ class ConsoleWindow(QWidget):
         self.setWindowTitle("Manggo Pro - 诊断控制台")
         self.resize(820, 520)
         self.setStyleSheet(theme.WINDOW_STYLESHEET)
-        self._last_index = 0
+        self._last_seq = 0
         self._min_level = LEVELS["INFO"]
         self._init_ui()
         self._refresh_all()
@@ -96,22 +99,22 @@ class ConsoleWindow(QWidget):
 
     def _refresh_all(self):
         self.txt_log.clear()
-        for record in get_records():
+        records = get_records()
+        for record in records:
             if self._passes(record):
                 self.txt_log.appendPlainText(format_record(record))
-        self._last_index = len(get_records())
+        self._last_seq = max((r["seq"] for r in records), default=0)
         if self.chk_autoscroll.isChecked():
             self.txt_log.verticalScrollBar().setValue(self.txt_log.verticalScrollBar().maximum())
         self._update_status()
 
     def _append_new(self):
         records = get_records()
-        if len(records) < self._last_index:
-            # 缓冲被清空过，重建视图
-            self._refresh_all()
-            return
-        new_records = records[self._last_index:]
-        self._last_index = len(records)
+        # 序号判定：缓冲顶掉旧记录时长度不再增长，下标切片会永久为空；
+        # 序号只增，顶掉旧记录后新记录的序号仍大于 _last_seq。
+        new_records = [r for r in records if r["seq"] > self._last_seq]
+        if new_records:
+            self._last_seq = max(r["seq"] for r in new_records)
         if not new_records:
             return
         for record in new_records:
@@ -127,5 +130,5 @@ class ConsoleWindow(QWidget):
     def _clear_view(self):
         clear_buffer()
         self.txt_log.clear()
-        self._last_index = 0
+        self._last_seq = 0
         self._update_status()

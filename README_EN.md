@@ -61,3 +61,9 @@ pip install -r requirements.txt
   Program Files / /Applications / /usr/share, logs, config and history
   live in the user directory: Windows `%APPDATA%\ManggoProClient`,
   macOS/Linux `~/.config/manggo-pro-client`)
+
+## 🖥️ Platform support & privacy notes
+
+- **Windows-only features**: global hotkeys, triple-space in-place translation and selection translation all depend on the Windows keyboard hook and only work on Windows; macOS / Linux packages ship as usual, but these three are unavailable there (the main workbench, screenshot OCR and history work on all three platforms).
+- **Free channels send your text to third parties**: the built-in free channel calls Youdao's public endpoint, Google's web translation relay and MyMemory's public API in order, so selected text and OCR text go to these providers (the LLM channel only talks to the API address you entered; on LLM failure it does NOT fall back to free channels unless you enable that option in settings).
+- **Update verification**: every Release ships a SHA256SUMS file, and downloaded updates are verified against it by filename — a mismatch or a missing entry refuses the install; the Windows installer update lands in a random temp directory instead of a fixed filename.
