@@ -93,6 +93,9 @@ exe = EXE(
     strip=(sys.platform != "win32"),
     upx=(sys.platform != "win32"),
     console=False,
+    # 打包版提权走系统 manifest：双击时系统直接弹 UAC，与右键管理员
+    # 启动走同一条路；应用内不再做 runas 自重启（见 main.py）。
+    uac_admin=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

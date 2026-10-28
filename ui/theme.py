@@ -411,7 +411,10 @@ QSlider::handle:horizontal {
     border: 1px solid #D6D3D1;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
-    border: 1.5px solid #EA580C;
+    /* 整数宽度：1.5px 分数边框在 Qt 光栅化时上下边渲染不一致，
+    底边最容易看起来缺一块（搜索框焦点下边框被遮挡）；边框只向
+    内生长，不改变布局尺寸，不会被裁。 */
+    border: 2px solid #EA580C;
     background-color: #FFFAF5;
 }
 QComboBox::drop-down {
@@ -518,25 +521,6 @@ QCheckBox::indicator:checked {
     image: none;
 }
 
-/* 滑块样式 */
-QSlider::groove:horizontal {
-    height: 6px;
-    background: #ECECEE;
-    border-radius: 3px;
-}
-QSlider::sub-page:horizontal {
-    background: #EA580C;
-    border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    background: #FFFFFF;
-    border: 2px solid #EA580C;
-    width: 16px;
-    height: 16px;
-    margin: -5px 0;
-    border-radius: 8px;
-}
-QSlider::handle:horizontal:hover {
-    background: #FFEDD5;
-}
+/* 注意：滑块样式只用上面 V2 那组（细线 + #D6D3D1 拇指边框，无彩条）；
+   这里曾经有第二组橙色滑块规则，会把 V2 的覆盖掉，已删除，勿重复添加。 */
 """

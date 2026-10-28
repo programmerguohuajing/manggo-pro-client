@@ -147,6 +147,32 @@ def _send_ctrl_c_input():
     return n_down + n_up
 
 
+VK_MASK = 0xE8  # 未分配键（AutoHotkey MenuMaskKey 同款）
+
+def _send_mask_key():
+    """注入一次掩码键 0xE8（按下+抬起），供 Alt 组合键触发时调用。
+
+    必须在 Alt 还按着时发、且走 SendInput（带注入标记，钩子自身会
+    按 flags & 0x10 过滤掉，不会循环触发）。对目标程序无可见效果，
+    只改变 Alt 的“裸按”判定：此后不管 Alt 何时松开，程序都不会
+    把它当成光秃秃的 Alt 而进菜单模式。
+    """
+    if not IS_WINDOWS:
+        return
+    scan = user32.MapVirtualKeyW(VK_MASK, MAPVK_VK_TO_VSC)
+
+    def _inp(vk, scan, flags):
+        item = INPUT()
+        item.type = INPUT_KEYBOARD
+        item.u.ki = KEYBDINPUT(wVk=vk, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=None)
+        return item
+
+    down = (INPUT * 1)(_inp(VK_MASK, scan, 0))
+    user32.SendInput(1, down, ctypes.sizeof(INPUT))
+    up = (INPUT * 1)(_inp(VK_MASK, scan, KEYEVENTF_KEYUP))
+    user32.SendInput(1, up, ctypes.sizeof(INPUT))
+
+
 def _send_ctrl_v():
     _release_modifiers()
     time.sleep(0.02)

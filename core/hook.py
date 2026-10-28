@@ -14,6 +14,7 @@ from typing import Callable, Dict, Optional
 
 from core.logging import debug as _log_debug, info as _log_info, warning as _log_warning
 from core.platform import IS_WINDOWS
+from core.replacer import _send_mask_key
 from core.hotkeys import (
     ACTION_ORDER,
     normalize_hotkeys,
@@ -65,6 +66,15 @@ class GlobalKeyboardHook:
         # 动作 -> (修饰键集合, 主键虚拟键码, 回调, 显示用组合键)
         self._hotkey_table = []
         self.hotkeys: Dict[str, str] = {}
+        # 钩子线程生命周期专属状态，由 start/stop 专管；update_hotkeys
+        # 只换判定表，绝不碰这几项——否则保存设置会杀死运行中的钩子，
+        # 托盘暂停失效、恢复时再起一个钩子导致同一组合键触发两次。
+        self.hook_id = None
+        self._thread = None
+        self._running = False
+        self._hook_proc_ref = None
+        # 已按下未抬起的主键集合：按住自动重复只吞不触发，抬起时清除。
+        self._down_hotkeys = set()
         self.update_hotkeys(hotkeys)
 
     def update_hotkeys(self, hotkeys: Optional[Dict[str, str]]) -> None:
@@ -96,11 +106,11 @@ class GlobalKeyboardHook:
         self.last_key_was_char = False
         self.alt_pressed = False
         self.shift_pressed = False
-
-        self.hook_id = None
-        self._thread = None
-        self._running = False
-        self._hook_proc_ref = None
+        # 注意：这里绝不重置 hook_id/_thread/_running/_hook_proc_ref。
+        # 钩子线程生命周期归 start/stop 管；保存设置时重置它们会杀死
+        # 运行中的钩子（线程还在跑但 _running 已是 False），托盘暂停
+        # 因 stop() 提前返回而失效，恢复时 start() 又起一个新钩子，
+        # 同一组合键触发两次。
 
     def _hook_callback(self, nCode, wParam, lParam):
         if nCode >= 0:
@@ -135,6 +145,17 @@ class GlobalKeyboardHook:
                 for mods, vk, callback, label in self._hotkey_table:
                     if vk_code == vk and mods_down == mods:
                         _log_info("HOOK", f">>> Hotkey {label} triggered! <<<")
+                        key = (tuple(sorted(mods)), vk)
+                        if key in self._down_hotkeys:
+                            # 按住主键不放的自动重复：只吞掉，不再重复触发。
+                            return 1
+                        self._down_hotkeys.add(key)
+                        # 菜单屏蔽键：Alt 组合键触发时 Alt 还按着；先注入
+                        # 一次未分配键 0xE8 的按下+抬起，此后不管 Alt 何时
+                        # 松开，对目标程序来说都不再是“光秃秃的 Alt”，
+                        # 不会进菜单模式（AutoHotkey MenuMaskKey 同款）。
+                        if "Alt" in mods:
+                            _send_mask_key()
                         if callback:
                             threading.Thread(target=callback, daemon=True).start()
                         return 1
@@ -164,6 +185,11 @@ class GlobalKeyboardHook:
                         _log_info("HOOK", f"[HOOK] Reset space_count (from {self.space_count}) on key vk={vk_code:#x}")
                     self.space_count = 0
                     self.last_space_time = 0.0
+
+            elif wParam in (WM_KEYUP, WM_SYSKEYUP):
+                # 主键抬起：清除按住态，下次按下可重新触发。
+                if self._down_hotkeys:
+                    self._down_hotkeys = {k for k in self._down_hotkeys if k[1] != vk_code}
 
         return user32.CallNextHookEx(self.hook_id, nCode, wParam, lParam)
 

@@ -48,7 +48,7 @@ from core.hotkeys import normalize_hotkeys
 _stage("import-hotkeys-done")
 from core.translator import TranslationManager
 _stage("import-translator-done")
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_ESCAPE
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
 _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook
 _stage("import-hook-done")
@@ -196,7 +196,10 @@ class AppCoordinator(QObject):
         self.settings_win.config_changed.connect(self._on_config_changed)
 
     def _on_snipping_requested(self):
-        _release_modifiers()
+        # 与划选翻译同理：等用户真正松开修饰键再开始截图，不注入
+        # Alt 抬起（会触发目标程序的菜单模式）。
+        if not _wait_modifiers_released(timeout=0.6):
+            _release_modifiers()
         self.snipping_widget.start_snipping()
 
     def _notify_bridge(self, status: str, message: str):
@@ -206,23 +209,18 @@ class AppCoordinator(QObject):
         if not IS_WINDOWS:
             self.notify_signal.emit("failed", "划选翻译仅支持 Windows")
             return
-        # 划词翻译：彻底释放物理与逻辑修饰键，防止发送的 Ctrl+C 被识别为 Alt+Ctrl+C
-        time.sleep(0.04)
-        _release_modifiers()
-        time.sleep(0.03)
-
-        # 2026-10-28 实测定性：托盘菜单触发（不经 Alt）复制正常，
-        # Alt+Q 触发复制失败——钩子只吞 Q，Alt 本尊照样到了目标
-        # 程序手里，程序把光秃秃的 Alt 当成菜单激活，焦点跑到菜单
-        # 上，Ctrl+C 就落不到选区里；菜单模式松开 Alt 也不退出，
-        # 所以重试也失败。复制前先发一个 Esc 退出菜单模式。
-        # 注意顺序：Esc 必须在释放修饰键之后发，否则会变成 Alt+Esc
-        # 切窗口。
-        _send_key(VK_ESCAPE)
-        time.sleep(0.02)
-        _send_key(VK_ESCAPE, is_up=True)
-        time.sleep(0.08)
-        _log_info("APP", "[SELECTION] Sent Esc to exit Alt menu mode")
+        # 2026-10-28：不再注入 Alt 抬起、不再发 Esc。旧做法的问题：
+        # 注入的 Alt 抬起本身就是一次“光秃秃的 Alt”，会让 Claude /
+        # WinUI 记事本进菜单模式；Esc 退出后，用户手指真正松开 Alt
+        # 时又是一次光秃秃的 Alt，菜单重进，Ctrl+C 和重试都被吃掉
+        # （1.0.8 热键实测如此）；托盘路径同样失败：合成 Alt 抬起
+        # 进菜单后，Esc 在 Claude 里并没能可靠退出。新做法：钩子
+        # 匹配时已注入掩码键 0xE8（见 core/hook.py），此后任何 Alt
+        # 抬起都不再触发菜单；这里只等用户真正松开修饰键再发
+        # Ctrl+C，超时（0.6s）才兜底释放——有掩码键在，兜底也不会进菜单。
+        if not _wait_modifiers_released(timeout=0.6):
+            _release_modifiers()
+            _log_info("APP", "[SELECTION] Modifiers still held after 0.6s, released synthetically (mask-protected)")
 
         # 只认序号变化后的剪贴板：Ctrl+C 没让剪贴板变化，说明这次
         # 根本没复制到选中文字。绝不能兜底读当前剪贴板——那是旧内容
@@ -347,6 +345,28 @@ class AppCoordinator(QObject):
         time.sleep(3)
         os._exit(0)
 
+def _wait_modifiers_released(timeout: float = 0.6) -> bool:
+    """等用户真正松开 Alt/Ctrl/Shift；全松开返回 True，超时返回 False。
+
+    供划选翻译与截图共用：不要没等用户松手就注入修饰键抬起——
+    注入的 Alt 抬起会被目标程序当成“光秃秃的 Alt”而进菜单模式。
+    非 Windows 直接返回 True（钩子与注入本就是 Windows 专属）。
+    """
+    if not IS_WINDOWS:
+        return True
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        held = (
+            (user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+            or (user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+            or (user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
+        )
+        if not held:
+            return True
+        time.sleep(0.01)
+    return False
+
+
 def _is_admin() -> bool:
     if not IS_WINDOWS:
         return False
@@ -358,9 +378,18 @@ def _is_admin() -> bool:
 
 def check_admin_elevation():
     """
-    检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)
+    检查并提升为管理员权限，确保能穿透注入按键到 Claude 桌面端等管理员应用中 (Windows UIPI 限制)。
+
+    打包版：spec 里 uac_admin=True，系统在双击时已按 manifest 弹过 UAC，
+    与右键管理员启动走同一条路；这里不再做 runas 自重启——已是管理员
+    直接过，非管理员则降级运行（避免与 manifest 重复提权）。
+    源码运行：保留原来的提示 + runas 自重启。
     """
     if not IS_WINDOWS:
+        return
+    if getattr(sys, "frozen", False) and not _is_admin():
+        # 打包版非管理员：manifest 提权未生效（例如 UAC 被关），不重复 runas。
+        _log_info("APP", "elevation: packaged build without admin, continuing non-elevated (manifest path only)")
         return
     try:
         if not _is_admin():
@@ -381,14 +410,9 @@ def check_admin_elevation():
                 )
             except Exception:
                 pass
-            # 打包版直接拉起 exe 本身，不需要传脚本路径：原来传的
-            # __file__ 在打包后指向 _internal 里不存在的 .py 路径，
-            # 虽然启动器会忽略多余参数，但传一个不存在的路径本身就是错的；
-            # 源码运行才需要把 main.py 路径当参数传给 python.exe。
-            if getattr(sys, "frozen", False):
-                params = None
-            else:
-                params = f'"{os.path.abspath(__file__)}"'
+            # 能走到这里的一定是源码运行（打包版非管理员上面已提前
+            # 返回），只需把 main.py 路径当参数传给 python.exe。
+            params = f'"{os.path.abspath(__file__)}"'
             res = ctypes.windll.shell32.ShellExecuteW(
                 None, "runas", sys.executable, params, None, 1
             )
