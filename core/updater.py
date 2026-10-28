@@ -3,9 +3,19 @@
 刻意保持 Qt-free（只有标准库），这样版本比对和选包逻辑不用起
 Qt 就能单测；界面侧的线程与弹窗在 ui/settings_window.py 里。
 
-更新源：GitHub Releases（仓库公开，无需 token；匿名调用限额
-60 次/小时/IP，手动检查够用）。Actions Artifacts 30 天过期，
+更新源（按顺序尝试，全部走匿名请求，仓库公开、无需 token）：
+1. GitHub Releases 直连（匿名调用限额 60 次/小时/IP，手动检查够用）；
+2. gh-proxy.com 代理的同一 Releases 接口（实测可用）；
+3. jsDelivr data API 查版本（实测与 GitHub 最新 tag 一致），下载地址
+   按发行版附件命名规则构造，下载时优先走代理。
+只有 404 是定性结论（确实没有 Release），直接报错；网络失败、
+403/5xx、解析失败都换下一个源。Actions Artifacts 30 天过期，
 不能当更新源，所以发布走 Release（见工作流的 publish-release job）。
+
+国内直连 GitHub 常常失败，所以检查与下载都有镜像回退：检查走
+上面的源链，下载对每个地址再展开直连 + 各代理的候选顺序。
+CNB 镜像目前不存在（cnb.cool 上查不到同名仓库），建好镜像后
+再接 CNB 源；ghfast.top 只代理下载、不代理 API，所以只进下载候选。
 
 v1 不做静默自动安装、不做增量更新：下载完成后按平台引导用户
 覆盖安装（Windows 安装版直接启动安装器；其余平台打开下载的
@@ -22,10 +32,27 @@ import urllib.request
 
 REPO = "programmerguohuajing/manggo-pro-client"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
+# 实测可用的加速源（2026-10-28 沙箱验证）：
+# - gh-proxy.com：API 与下载都能代理；
+# - ghfast.top：只能代理下载，API 返回的不是 JSON，只进下载候选；
+# - jsDelivr data API：版本与 GitHub 最新 tag 一致，但只能提供仓库
+#   文件、不能提供 Release 附件，所以只做版本源。
+# mirror.ghproxy.com / ghproxy.net / proxy.ghproxy.com 同期实测不可用，
+# 不放进默认链。
+PROXY_PREFIXES = ("https://gh-proxy.com/", "https://ghfast.top/")
+JSDELIVR_DATA = f"https://data.jsdelivr.com/v1/packages/gh/{REPO}"
 
 
 class UpdateError(Exception):
     pass
+
+
+class _Fallback(Exception):
+    """该源不可用，换下一个源；不是最终错误。"""
+
+
+class _DefinitiveDownloadError(UpdateError):
+    """下载地址定性不存在（404），换镜像也没有意义，直接报错。"""
 
 
 def parse_version(text):
@@ -58,10 +85,16 @@ def is_newer(remote_version, local_version) -> bool:
     return remote > local
 
 
-def fetch_latest(timeout=15):
-    """返回 {"version", "tag", "body", "assets": [{"name", "url"}]}。"""
+def _fetch_api_release(url, timeout):
+    """从一个 Releases /latest 接口取 Release；不可用时报 _Fallback。
+
+    只有 404 是定性结论（确实没有 Release，或者仓库是私有的——
+    GitHub 对匿名用户隐藏私有仓库，一律返回 404，两者无法区分，
+    所以文案不把话说死），直接报 UpdateError；网络失败、403/5xx、
+    解析失败都只是该源不可用，交给调用方换下一个源。
+    """
     request = urllib.request.Request(
-        API_LATEST,
+        url,
         headers={
             "Accept": "application/vnd.github+json",
             "User-Agent": "ManggoProClient-Updater",
@@ -72,17 +105,12 @@ def fetch_latest(timeout=15):
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            # 匿名请求下 404 有两种可能：确实没有 Release，或者仓库
-            # 是私有的（GitHub 对匿名用户隐藏私有仓库，一律返回 404）。
-            # 两者在匿名 API 里无法区分，所以文案不把话说死。
             raise UpdateError("无法读取公开的 Release 信息（可能暂无 Release，或仓库未公开）")
-        if e.code == 403:
-            raise UpdateError("GitHub API 调用受限（匿名限额），请稍后再试")
-        raise UpdateError(f"GitHub 请求失败（HTTP {e.code}）")
+        raise _Fallback(f"HTTP {e.code}")
     except urllib.error.URLError as e:
-        raise UpdateError(f"网络请求失败：{e.reason}")
+        raise _Fallback(f"网络请求失败：{e.reason}")
     except (ValueError, KeyError) as e:
-        raise UpdateError(f"更新信息解析失败：{e}")
+        raise _Fallback(f"更新信息解析失败：{e}")
     assets = [
         {"name": a.get("name", ""), "url": a.get("browser_download_url", "")}
         for a in data.get("assets", [])
@@ -94,6 +122,101 @@ def fetch_latest(timeout=15):
         "body": data.get("body") or "",
         "assets": assets,
     }
+
+
+def _constructed_asset(tag, channel=None):
+    """按发行版附件命名规则，给当前平台构造一个附件（jsDelivr 源用）。
+
+    jsDelivr data API 只给版本号，不给附件列表；但附件名是发布工作流
+    定的（见 select_asset 的匹配规则），所以能按平台 + 渠道 + 架构
+    反推出来。未知平台返回 None，调用方按“没有当前平台的安装包”处理。
+    """
+    if channel is None:
+        from core.version import get_channel
+
+        channel = get_channel()
+    version = tag.lstrip("v")
+    if sys.platform == "win32":
+        name = (
+            "ManggoProClient-Setup.exe"
+            if channel == "安装版"
+            else "ManggoProClient-Windows-x64.zip"
+        )
+    elif sys.platform == "darwin":
+        name = (
+            "ManggoProClient-macOS-AppleSilicon.dmg"
+            if _arch_key() == "arm"
+            else "ManggoProClient-macOS-Intel.dmg"
+        )
+    elif sys.platform.startswith("linux"):
+        name = f"manggo-pro-client_{version}_amd64.deb"
+    else:
+        return None
+    direct = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    # 走到 jsDelivr 源，说明直连与代理 API 都已失败，下载优先走代理。
+    return {"name": name, "url": PROXY_PREFIXES[0] + direct}
+
+
+def _fetch_jsdelivr_release(timeout):
+    """从 jsDelivr data API 取最新版本；返回与 _fetch_api_release 同形的 dict。
+
+    data API 的 versions 按版本号排，但不保证顺序，所以取解析后最大
+    的一个；body 拿不到，置空（界面只在有新版时展示它，可空）。
+    """
+    request = urllib.request.Request(
+        JSDELIVR_DATA,
+        headers={"User-Agent": "ManggoProClient-Updater"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise _Fallback(f"HTTP {e.code}")
+    except urllib.error.URLError as e:
+        raise _Fallback(f"网络请求失败：{e.reason}")
+    except (ValueError, KeyError) as e:
+        raise _Fallback(f"更新信息解析失败：{e}")
+    best = None
+    for entry in data.get("versions", []) or []:
+        parsed = parse_version(entry.get("version", ""))
+        if parsed is not None and (best is None or parsed > best[0]):
+            best = (parsed, entry["version"])
+    if best is None:
+        raise _Fallback("jsDelivr 暂无该仓库版本")
+    tag = "v" + best[1]
+    asset = _constructed_asset(tag)
+    return {
+        "version": best[1],
+        "tag": tag,
+        "body": "",
+        "assets": [asset] if asset is not None else [],
+    }
+
+
+def fetch_latest(timeout=10):
+    """按 直连 → gh-proxy → jsDelivr 的顺序查最新 Release。
+
+    返回 {"version", "tag", "body", "assets": [{"name", "url"}], "via": 源名}。
+    timeout 是每个源的单次超时（秒），不是总超时；最坏约 30 秒，
+    检查跑在界面线程之外，不会冻住界面。
+    """
+    strategies = [
+        ("GitHub 直连", lambda: _fetch_api_release(API_LATEST, timeout)),
+        ("gh-proxy", lambda: _fetch_api_release(PROXY_PREFIXES[0] + API_LATEST, timeout)),
+        ("jsDelivr", lambda: _fetch_jsdelivr_release(timeout)),
+    ]
+    reasons = []
+    for name, fn in strategies:
+        try:
+            release = fn()
+        except UpdateError:
+            raise
+        except _Fallback as e:
+            reasons.append(f"{name}：{e}")
+            continue
+        release["via"] = name
+        return release
+    raise UpdateError(f"无法连接更新服务器（已尝试直连与镜像）：{'；'.join(reasons)}")
 
 
 def _arch_key():
@@ -150,8 +273,26 @@ def download_dir():
     return tempfile.gettempdir()
 
 
-def download(url, dest_path, progress_cb=None):
-    """下载到 dest_path；progress_cb(percent) 在已知总大小时回调。"""
+def _download_candidates(url):
+    """把一个下载地址展开成候选顺序：原地址优先，其次直连，其次各代理。
+
+    检查走哪个源，下载就优先走哪个源（原地址已经是那个源的形式）；
+    原地址失败时再试其他形式。去重，保证每个地址最多试一次。
+    """
+    base = url
+    for prefix in PROXY_PREFIXES:
+        if url.startswith(prefix):
+            base = url[len(prefix):]
+            break
+    candidates = []
+    for candidate in [url, base] + [prefix + base for prefix in PROXY_PREFIXES]:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _download_one(url, dest_path, progress_cb=None):
+    """从单个地址下载；失败时报 UpdateError（404 则报定性错误）。"""
     request = urllib.request.Request(
         url, headers={"User-Agent": "ManggoProClient-Updater"}
     )
@@ -169,6 +310,30 @@ def download(url, dest_path, progress_cb=None):
                     received += len(chunk)
                     if total and progress_cb:
                         progress_cb(min(100, received * 100 // total))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise _DefinitiveDownloadError(f"下载地址不存在（HTTP 404）：{url}")
+        raise UpdateError(f"下载失败（HTTP {e.code}）：{url}")
     except urllib.error.URLError as e:
         raise UpdateError(f"下载失败：{e.reason}")
     return dest_path
+
+
+def download(url, dest_path, progress_cb=None):
+    """按候选顺序下载到 dest_path；progress_cb(percent) 在已知总大小时回调。
+
+    全部候选失败时删掉残缺文件再报错，避免用户拿到一半的安装包。
+    """
+    errors = []
+    for candidate in _download_candidates(url):
+        try:
+            return _download_one(candidate, dest_path, progress_cb)
+        except _DefinitiveDownloadError:
+            raise
+        except UpdateError as e:
+            errors.append(str(e))
+    try:
+        os.remove(dest_path)
+    except OSError:
+        pass
+    raise UpdateError(f"下载失败（已尝试 {len(errors)} 个地址）：{'；'.join(errors)}")
