@@ -317,6 +317,83 @@ def setup_modern_combobox(combo: QComboBox):
         popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         popup.setAttribute(Qt.WA_TranslucentBackground)
 
+def _qt_key_name(key: int):
+    """把 Qt 按键码转成热键主键名；不支持的键返回 None。"""
+    if 0x41 <= key <= 0x5A or 0x30 <= key <= 0x39:
+        return chr(key)
+    if key == 0x20:
+        return "Space"
+    if 0x01000030 <= key <= 0x0100003B:  # F1-F12
+        return f"F{key - 0x01000030 + 1}"
+    return None
+
+
+class ClickableLabel(QLabel):
+    """可点的徽章：点按即进入热键编辑（仅 Windows 下创建）。"""
+    clicked = Signal()
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class HotkeyEdit(QLineEdit):
+    """热键编辑框：按键实时反填组合键，Enter 确认，Esc 取消，失焦取消。
+
+    这里不调用父类 keyPressEvent，所以按键不会落成文本；
+    修饰键单独按下时忽略，等主键；自动重复忽略。
+    """
+    confirmed = Signal()
+    cancelled = Signal()
+    invalid = Signal(str)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.confirmed.emit()
+            return
+        if key == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            return
+        if event.isAutoRepeat():
+            return
+        if key in (Qt.Key.Key_Alt, Qt.Key.Key_Control, Qt.Key.Key_Shift,
+                   Qt.Key.Key_Meta, Qt.Key.Key_AltGr, Qt.Key.Key_CapsLock):
+            return
+        mods = []
+        m = event.modifiers()
+        if m & Qt.KeyboardModifier.AltModifier:
+            mods.append("Alt")
+        if m & Qt.KeyboardModifier.ControlModifier:
+            mods.append("Ctrl")
+        if m & Qt.KeyboardModifier.ShiftModifier:
+            mods.append("Shift")
+        main = _qt_key_name(key)
+        if main is None:
+            self.invalid.emit("该按键不支持作为热键主键，请用字母、数字、F1-F12 或 Space。")
+            return
+        if not mods:
+            self.invalid.emit("请带上 Alt / Ctrl / Shift 再按一次（单独按键不能做全局热键）。")
+            return
+        combo = "+".join(mods + [main])
+        parsed = parse_hotkey(combo)
+        if parsed is None:
+            self.invalid.emit(f"组合键“{combo}”无效，请换一个。")
+            return
+        self.setText(parsed[2])
+
+    def focusOutEvent(self, event):
+        # 失焦 = 放弃本次修改；Enter 确认后收起编辑态也会触发一次，
+        # 但那时 _editing_action 已清零，父类的取消处理直接返回。
+        self.cancelled.emit()
+        super().focusOutEvent(event)
+
+
 class SettingsWindow(QWidget):
     config_changed = Signal(dict)
     open_main_requested = Signal()
@@ -404,12 +481,12 @@ class SettingsWindow(QWidget):
 
         self._sections = []
         builders = [
-            ("engine", "翻译通道", self._build_engine_tab),
-            ("trigger", "触发方式", self._build_trigger_tab),
-            ("hotkeys", "全局热键", self._build_hotkeys_tab),
-            ("about", "关于与状态", self._build_about_tab),
+            ("engine", "翻译通道", "选择翻译通道，配置大模型 API 参数；内置通道开箱即用，无需 Key。", self._build_engine_tab),
+            ("trigger", "触发方式", "连击空格就地转译的开关与灵敏度。", self._build_trigger_tab),
+            ("hotkeys", "全局热键", "点组合键可直接修改，保存后立即生效。", self._build_hotkeys_tab),
+            ("about", "关于与状态", "版本、更新、开机自启与各模块运行状态。", self._build_about_tab),
         ]
-        for key, title, builder in builders:
+        for key, title, desc, builder in builders:
             section = QWidget()
             s_layout = QVBoxLayout(section)
             s_layout.setContentsMargins(0, 0, 0, 0)
@@ -418,6 +495,11 @@ class SettingsWindow(QWidget):
             lbl_head.setProperty("class", "SectionHead")
             lbl_head.setStyleSheet("padding-left: 24px;")
             s_layout.addWidget(lbl_head)
+            lbl_desc = QLabel(desc)
+            lbl_desc.setProperty("class", "SectionDesc")
+            lbl_desc.setStyleSheet("padding-left: 24px;")
+            lbl_desc.setWordWrap(True)
+            s_layout.addWidget(lbl_desc)
             s_layout.addWidget(builder())
             content_layout.addWidget(section)
             self._sections.append((key, section))
@@ -559,6 +641,7 @@ class SettingsWindow(QWidget):
         card = QFrame()
         card.setProperty("class", "CardFrame")
         c_layout = QVBoxLayout(card)
+        c_layout.setContentsMargins(20, 20, 20, 20)
         c_layout.setSpacing(12)
 
         self.chk_triple_space = QCheckBox("启用【连续三次空格】输入框就地转译")
@@ -606,10 +689,11 @@ class SettingsWindow(QWidget):
         l.addWidget(card)
 
         # 机制提示：V2 不再是黄色卡片，改成一行素色脚注。
+        # 机制提示：重设计里不再是卡片，是一行素色脚注。
         tip_card = QFrame()
-        tip_card.setProperty("class", "CardFrame")
         tip_card.setStyleSheet("background: transparent; border: none;")
         t_l = QVBoxLayout(tip_card)
+        t_l.setContentsMargins(0, 0, 0, 0)
         lbl_tip_title = QLabel("贴心使用提示")
         lbl_tip_title.setStyleSheet(f"font-weight: 600; color: {theme.WARM_GRAY}; font-size: 12px;")
         t_l.addWidget(lbl_tip_title)
@@ -637,6 +721,7 @@ class SettingsWindow(QWidget):
         card_sel = QFrame()
         card_sel.setProperty("class", "CardFrame")
         cs_l = QVBoxLayout(card_sel)
+        cs_l.setContentsMargins(20, 20, 20, 20)
         cs_l.setSpacing(10)
 
         self.cmb_engine = QComboBox()
@@ -653,6 +738,7 @@ class SettingsWindow(QWidget):
         self.card_llm = QFrame()
         self.card_llm.setProperty("class", "CardFrame")
         cl_layout = QVBoxLayout(self.card_llm)
+        cl_layout.setContentsMargins(20, 20, 20, 20)
         cl_layout.setSpacing(12)
 
         # 服务商快捷预设
@@ -722,8 +808,8 @@ class SettingsWindow(QWidget):
         return container
 
     # ---------------- 分区：全局热键 ----------------
-    # V2：同引擎分区，不再包自己的 QScrollArea；行内标题不重复放，
-    # 录制说明移到卡片底部原样保留。
+    # 同引擎分区，不再包自己的 QScrollArea；行内标题不重复放，
+    # 修改方法说明放在卡片底部；徽章点按变输入框，Enter 确认。
     def _build_hotkeys_tab(self) -> QWidget:
         container = QWidget()
         l = QVBoxLayout(container)
@@ -733,19 +819,17 @@ class SettingsWindow(QWidget):
         card = QFrame()
         card.setProperty("class", "CardFrame")
         c_layout = QVBoxLayout(card)
+        c_layout.setContentsMargins(20, 20, 20, 20)
         c_layout.setSpacing(12)
 
-        lbl_t = QLabel("点【点击录制】可修改组合键，保存后立即生效")
-        lbl_t.setStyleSheet(f"color: {theme.WARM_GRAY}; font-size: 12px;")
-        c_layout.addWidget(lbl_t)
-
-        # 待保存的组合键：录制时先改这里，点底部保存才写 config.json。
-        # 非 Windows 上全局钩子不存在，录制按钮置灰，只作展示。
+        # 待保存的组合键：点徽章改这里，点底部保存才写 config.json。
+        # 非 Windows 上全局钩子不存在，徽章不可点，只作展示。
         self._hotkey_values = normalize_hotkeys(self.config.get("hotkeys"))
         self._hotkey_badges = {}
-        self._hotkey_record_btns = {}
-        self._recording_action = None
-        self._filter_installed = False
+        self._hotkey_edits = {}
+        self._hotkey_cancel_btns = {}
+        self._hotkey_hints = {}
+        self._editing_action = None
 
         # (动作 key 或 None, 徽章文字, 功能名, 说明)；动作为 None 的是固定项，不可改。
         rows = [
@@ -774,21 +858,36 @@ class SettingsWindow(QWidget):
 
             h_top.addStretch()
 
-            if action is not None:
-                btn_record = QPushButton("点击录制")
-                btn_record.setProperty("class", "SecondaryBtn")
-                btn_record.setEnabled(IS_WINDOWS)
-                btn_record.clicked.connect(lambda _=False, a=action: self._start_recording(a))
-                self._hotkey_record_btns[action] = btn_record
-                h_top.addWidget(btn_record)
-
             badge_text = self._hotkey_values[action] if action is not None else key_text
-            # V2：组合键徽章不再是琥珀药丸，改成浅灰底等宽文字。
-            lbl_badge = QLabel(badge_text)
+            # 组合键徽章：浅灰底等宽文字；Windows 下可点，点击后变成输入框。
+            if action is not None and IS_WINDOWS:
+                lbl_badge = ClickableLabel(badge_text)
+                lbl_badge.clicked.connect(lambda _=False, a=action: self._start_hotkey_edit(a))
+            else:
+                lbl_badge = QLabel(badge_text)
             lbl_badge.setStyleSheet(f"background: {theme.INPUT_FILL}; color: {theme.TEXT_PRIMARY}; font-weight: 600; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-family: {theme.FONT_MONO};")
             if action is not None:
                 self._hotkey_badges[action] = lbl_badge
             h_top.addWidget(lbl_badge)
+
+            if action is not None and IS_WINDOWS:
+                edit = HotkeyEdit()
+                edit.setText(badge_text)
+                edit.setFixedWidth(160)
+                edit.setStyleSheet(f"font-size: 11px; font-family: {theme.FONT_MONO};")
+                edit.confirmed.connect(self._confirm_hotkey_edit)
+                edit.cancelled.connect(self._cancel_hotkey_edit)
+                edit.invalid.connect(lambda msg: self.lbl_hotkey_status.setText(msg))
+                edit.setVisible(False)
+                self._hotkey_edits[action] = edit
+                h_top.addWidget(edit)
+
+                btn_cancel = QPushButton("取消")
+                btn_cancel.setStyleSheet(f"background: transparent; border: none; color: {theme.TEXT_MUTED}; font-size: 12px; padding: 4px 8px;")
+                btn_cancel.clicked.connect(self._cancel_hotkey_edit)
+                btn_cancel.setVisible(False)
+                self._hotkey_cancel_btns[action] = btn_cancel
+                h_top.addWidget(btn_cancel)
             r_l.addLayout(h_top)
 
             # 次行：完整说明文本（开启自适应折行，彻底杜绝文字截断）
@@ -797,14 +896,22 @@ class SettingsWindow(QWidget):
             lbl_d.setWordWrap(True)
             r_l.addWidget(lbl_d)
 
+            if action is not None and IS_WINDOWS:
+                lbl_hint = QLabel("正在监听按键… Enter 确认，Esc 取消。")
+                lbl_hint.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
+                lbl_hint.setVisible(False)
+                self._hotkey_hints[action] = lbl_hint
+                r_l.addWidget(lbl_hint)
+
             c_layout.addWidget(row)
 
-        # 录制说明 + 恢复默认：放在卡片底部，不随行循环重复。
+        # 修改方法说明 + 恢复默认：放在卡片底部，不随行循环重复。
         self.lbl_hotkey_status = QLabel(
-            "录制方法：点【点击录制】后直接按下组合键（需带 Alt / Ctrl / Shift，Win 键不支持）；按 Esc 取消。"
+            "修改方法：点组合键变成输入框后直接按下组合键（需带 Alt / Ctrl / Shift，Win 键不支持）；Enter 确认，Esc 取消。"
             if IS_WINDOWS else
-            "全局热键仅支持 Windows，当前平台下录制不可用；这里只展示默认组合键。"
+            "全局热键仅支持 Windows，当前平台下组合键不可修改；这里只展示默认组合键。"
         )
+        self._hotkey_method_text = self.lbl_hotkey_status.text()
         self.lbl_hotkey_status.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
         self.lbl_hotkey_status.setWordWrap(True)
         c_layout.addWidget(self.lbl_hotkey_status)
@@ -823,46 +930,74 @@ class SettingsWindow(QWidget):
 
         return container
 
-    # ---------------- 热键录制 ----------------
-    @staticmethod
-    def _qt_key_name(key: int):
-        """把 Qt 按键码转成热键主键名；不支持的键返回 None。"""
-        if 0x41 <= key <= 0x5A or 0x30 <= key <= 0x39:
-            return chr(key)
-        if key == 0x20:
-            return "Space"
-        if 0x01000030 <= key <= 0x0100003B:  # F1-F12
-            return f"F{key - 0x01000030 + 1}"
-        return None
+    # ---------------- 热键点按修改 ----------------
+    def _start_hotkey_edit(self, action: str):
+        """点徽章 → 徽章变输入框，监听按键并实时反填。"""
+        if self._editing_action is not None and self._editing_action != action:
+            self._cancel_hotkey_edit()
+        if self._editing_action == action:
+            return
+        self._editing_action = action
+        self._hotkey_badges[action].setVisible(False)
+        edit = self._hotkey_edits[action]
+        edit.setText(self._hotkey_values[action])
+        edit.setVisible(True)
+        self._hotkey_cancel_btns[action].setVisible(True)
+        self._hotkey_hints[action].setVisible(True)
+        edit.setFocus()
+        edit.selectAll()
+        self.lbl_hotkey_status.setText(
+            f"正在修改【{ACTION_NAMES[action]}】：直接按下新组合键，Enter 确认，Esc 取消。"
+        )
 
-    def _start_recording(self, action: str):
-        if self._recording_action is not None:
-            self._cancel_recording()
-        self._recording_action = action
-        btn = self._hotkey_record_btns[action]
-        btn.setText("请按下组合键…（Esc 取消）")
-        app = QApplication.instance()
-        if app is not None and not self._filter_installed:
-            app.installEventFilter(self)
-            self._filter_installed = True
-        self.lbl_hotkey_status.setText(f"正在录制【{ACTION_NAMES[action]}】，请按下组合键…")
+    def _end_hotkey_edit(self):
+        """收起编辑态（徽章回来，输入框/取消/提示隐藏），不改状态行。"""
+        action = self._editing_action
+        if action is None:
+            return
+        self._editing_action = None
+        self._hotkey_edits[action].setVisible(False)
+        self._hotkey_cancel_btns[action].setVisible(False)
+        self._hotkey_hints[action].setVisible(False)
+        self._hotkey_badges[action].setVisible(True)
 
-    def _finish_recording(self):
-        if self._recording_action is not None:
-            self._hotkey_record_btns[self._recording_action].setText("点击录制")
-        self._recording_action = None
-        app = QApplication.instance()
-        if app is not None and self._filter_installed:
-            app.removeEventFilter(self)
-            self._filter_installed = False
+    def _confirm_hotkey_edit(self):
+        """Enter 确认：校验 → 查重 → 写待保存值，标记未保存。"""
+        action = self._editing_action
+        if action is None:
+            return
+        combo = self._hotkey_edits[action].text().strip()
+        parsed = parse_hotkey(combo)
+        if parsed is None:
+            self.lbl_hotkey_status.setText("组合键无效：需带 Alt / Ctrl / Shift，主键用字母、数字、F1-F12 或 Space。")
+            return
+        combo = parsed[2]
+        if combo == self._hotkey_values[action]:
+            # 没改：直接收起，不标记未保存。
+            self._end_hotkey_edit()
+            self.lbl_hotkey_status.setText(self._hotkey_method_text)
+            return
+        for other, value in self._hotkey_values.items():
+            if other != action and value == combo:
+                QMessageBox.warning(self, "组合键重复", f"“{combo}”已用于【{ACTION_NAMES[other]}】，请换一个。")
+                return
+        self._hotkey_values[action] = combo
+        self._hotkey_badges[action].setText(combo)
+        self._end_hotkey_edit()
+        self.lbl_hotkey_status.setText(f"已修改【{ACTION_NAMES[action]}】：{combo}，点底部【保存并应用】后生效。")
+        self._mark_dirty()
 
-    def _cancel_recording(self):
-        self._finish_recording()
-        self.lbl_hotkey_status.setText("已取消录制，组合键未改动。")
+    def _cancel_hotkey_edit(self):
+        """Esc / 点取消 / 失焦：放弃本次修改，徽章值不动。"""
+        action = self._editing_action
+        if action is None:
+            return
+        self._end_hotkey_edit()
+        self.lbl_hotkey_status.setText("已取消修改，组合键未改动。")
 
     def _restore_default_hotkeys(self):
-        if self._recording_action is not None:
-            self._cancel_recording()
+        if self._editing_action is not None:
+            self._cancel_hotkey_edit()
         self._hotkey_values = dict(DEFAULT_HOTKEYS)
         self._refresh_hotkey_rows()
         self.lbl_hotkey_status.setText("已恢复默认组合键，点底部【保存并应用】后生效。")
@@ -871,54 +1006,6 @@ class SettingsWindow(QWidget):
     def _refresh_hotkey_rows(self):
         for action, badge in self._hotkey_badges.items():
             badge.setText(self._hotkey_values[action])
-
-    def eventFilter(self, obj, event):
-        # 只在录制期间拦截按键；其他时候原样放行，避免影响正常输入。
-        if self._recording_action is not None and event.type() == QEvent.Type.KeyPress:
-            return self._on_record_key(event)
-        return super().eventFilter(obj, event)
-
-    def _on_record_key(self, event) -> bool:
-        key = event.key()
-        if key == Qt.Key.Key_Escape:
-            self._cancel_recording()
-            return True
-        # 纯修饰键：等主键，不吞之外的行为也无妨，吞掉可避免按钮误触发。
-        if key in (Qt.Key.Key_Alt, Qt.Key.Key_Control, Qt.Key.Key_Shift,
-                   Qt.Key.Key_Meta, Qt.Key.Key_AltGr, Qt.Key.Key_CapsLock):
-            return True
-        mods = []
-        m = event.modifiers()
-        if m & Qt.KeyboardModifier.AltModifier:
-            mods.append("Alt")
-        if m & Qt.KeyboardModifier.ControlModifier:
-            mods.append("Ctrl")
-        if m & Qt.KeyboardModifier.ShiftModifier:
-            mods.append("Shift")
-        main = self._qt_key_name(key)
-        action = self._recording_action
-        if main is None:
-            self.lbl_hotkey_status.setText("该按键不支持作为热键主键，请用字母、数字、F1-F12 或 Space。")
-            return True
-        if not mods:
-            self.lbl_hotkey_status.setText("请带上 Alt / Ctrl / Shift 再按一次（单独按键不能做全局热键）。")
-            return True
-        combo = "+".join(mods + [main])
-        parsed = parse_hotkey(combo)
-        if parsed is None:
-            self.lbl_hotkey_status.setText(f"组合键“{combo}”无效，请换一个。")
-            return True
-        combo = parsed[2]
-        for other, value in self._hotkey_values.items():
-            if other != action and value == combo:
-                QMessageBox.warning(self, "组合键重复", f"“{combo}”已用于【{ACTION_NAMES[other]}】，请换一个。")
-                return True
-        self._hotkey_values[action] = combo
-        self._hotkey_badges[action].setText(combo)
-        self._finish_recording()
-        self.lbl_hotkey_status.setText(f"已录制【{ACTION_NAMES[action]}】：{combo}，点底部【保存并应用】后生效。")
-        self._mark_dirty()
-        return True
 
     # ---------------- 分区：关于与状态 ----------------
     def _build_about_tab(self) -> QWidget:
@@ -930,6 +1017,7 @@ class SettingsWindow(QWidget):
         card = QFrame()
         card.setProperty("class", "CardFrame")
         c_l = QVBoxLayout(card)
+        c_l.setContentsMargins(20, 20, 20, 20)
         c_l.setSpacing(12)
 
         lbl_app_name = QLabel("Manggo Pro Client 桌面客户端")
@@ -972,10 +1060,14 @@ class SettingsWindow(QWidget):
             auto_row.addWidget(lbl_auto_desc, 1)
             c_l.addLayout(auto_row)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet(f"color: {theme.BORDER};")
-        c_l.addWidget(line)
+        l.addWidget(card)
+
+        # 运行状态卡片：与应用信息分开，状态一目了然。
+        card_status = QFrame()
+        card_status.setProperty("class", "CardFrame")
+        cs_l = QVBoxLayout(card_status)
+        cs_l.setContentsMargins(20, 20, 20, 20)
+        cs_l.setSpacing(12)
 
         # 状态指示：Windows 专属项在其他平台上如实标注，不谎报就绪。
         from core.platform import IS_MAC, IS_WINDOWS
@@ -999,9 +1091,9 @@ class SettingsWindow(QWidget):
             h.addWidget(QLabel(title, styleSheet=f"color: {theme.TEXT_SECONDARY}; font-weight: 500; font-size: 12px;"))
             h.addStretch()
             h.addWidget(QLabel(val, styleSheet=f"color: {theme.SUCCESS_DARK}; font-weight: bold; font-size: 12px;"))
-            c_l.addLayout(h)
+            cs_l.addLayout(h)
 
-        l.addWidget(card)
+        l.addWidget(card_status)
         l.addStretch()
         return container
 
@@ -1226,12 +1318,12 @@ class SettingsWindow(QWidget):
             dlg.exec()
 
     def _save_and_apply(self):
-        if self._recording_action is not None:
-            self._cancel_recording()
+        if self._editing_action is not None:
+            self._cancel_hotkey_edit()
         new_cfg = self._gather_config()
         err = validate_hotkeys(new_cfg.get("hotkeys"))
         if err:
-            QMessageBox.warning(self, "热键无效", err + "，请重新录制后再保存。")
+            QMessageBox.warning(self, "热键无效", err + "，请重新修改后再保存。")
             return
         self.config = new_cfg
         save_config(new_cfg)

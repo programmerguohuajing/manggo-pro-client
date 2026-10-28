@@ -325,47 +325,48 @@ QWidget#SettingsWindow {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* V2：侧边导航只剩文字，当前项靠左侧 2px 琥珀竖线标识，不用色块背景 */
+/* 重设计：导航激活态为浅橙底 + 左侧 3px 橙条 + 橙字加粗 */
 QListWidget#NavList {
     background-color: transparent;
     border: none;
     outline: none;
-    padding-top: 18px;
+    padding-top: 20px;
 }
 QListWidget#NavList::item {
-    height: 42px;
-    margin: 2px 8px;
+    height: 36px;
+    margin: 2px 12px;
     padding-left: 12px;
-    border-left: 2px solid transparent;
-    color: #8A857C;
+    border-left: 3px solid transparent;
+    color: #232120;
     font-size: 14px;
 }
 QListWidget#NavList::item:hover {
     color: #232120;
 }
 QListWidget#NavList::item:selected {
-    background-color: transparent;
-    border-left: 2px solid #EA580C;
-    color: #232120;
+    background-color: #FFF7ED;
+    border-left: 3px solid #EA580C;
+    color: #EA580C;
     font-weight: bold;
 }
 
-/* V2：分区不再是带边框的卡片，卡片容器拍平成透明，分区之间靠间距区分 */
+/* 重设计：卡片统一白底 + #ECECEE 细边 + 16px 圆角；内边距由卡片布局的
+   contentsMargins 给（20px），这里不重复加 padding，避免双倍缩进。 */
 QFrame.CardFrame {
-    background-color: transparent;
-    border: none;
-    border-radius: 0px;
+    background-color: #FFFFFF;
+    border: 1px solid #ECECEE;
+    border-radius: 16px;
     padding: 0px;
 }
 QFrame.CardFrame:hover {
-    border: none;
+    border: 1px solid #ECECEE;
 }
 
-/* V2：分区标题是 12px 灰色小字，不再是大号加粗标题 */
+/* 重设计：分区标题 15px 加粗深色，下一行配 12px 灰色说明（SectionDesc）。 */
 QLabel.SectionHead {
-    font-size: 12px;
-    font-weight: 600;
-    color: #8A857C;
+    font-size: 15px;
+    font-weight: bold;
+    color: #232120;
 }
 
 /* 标题规范 */
@@ -385,11 +386,11 @@ QLabel.FieldLabel {
     color: #232120;
 }
 
-/* 输入框与下拉框：V2 改成浅灰底无边框，聚焦时才出现琥珀边 */
+/* 输入框与下拉框：浅灰底无边框、8px 圆角，聚焦时出现 2px 琥珀边。 */
 QLineEdit, QComboBox, QSpinBox, QTextEdit {
     background-color: #F7F7F8;
-    border: 1px solid #ECECEE;
-    border-radius: 6px;
+    border: none;
+    border-radius: 8px;
     padding: 7px 10px;
     font-size: 12px;
     color: #232120;
@@ -415,7 +416,7 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
     底边最容易看起来缺一块（搜索框焦点下边框被遮挡）；边框只向
     内生长，不改变布局尺寸，不会被裁。 */
     border: 2px solid #EA580C;
-    background-color: #FFFAF5;
+    background-color: #FFFFFF;
 }
 QComboBox::drop-down {
     border: none;
