@@ -54,15 +54,15 @@ class ConsoleWindow(QWidget):
 
         toolbar.addStretch()
 
-        self.btn_copy = make_action_button("📋 复制全部", "secondary", self)
+        self.btn_copy = make_action_button("复制全部", "secondary", self)
         self.btn_copy.clicked.connect(self._copy_all)
         toolbar.addWidget(self.btn_copy)
 
-        self.btn_clear = make_action_button("🗑️ 清空显示", "secondary", self)
+        self.btn_clear = make_action_button("清空显示", "secondary", self)
         self.btn_clear.clicked.connect(self._clear_view)
         toolbar.addWidget(self.btn_clear)
 
-        self.btn_open_file = make_action_button("📂 打开日志文件", "secondary", self)
+        self.btn_open_file = make_action_button("打开日志文件", "secondary", self)
         self.btn_open_file.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(log_file_path()))
         )
@@ -70,13 +70,14 @@ class ConsoleWindow(QWidget):
         root.addLayout(toolbar)
 
         self.txt_log = QPlainTextEdit(self)
+        self.txt_log.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; border-radius: 6px; color: {theme.INK};")
         self.txt_log.setReadOnly(True)
         self.txt_log.setFont(QFont("Consolas", 10))
         self.txt_log.setPlaceholderText("暂无日志…（钩子逐键记录为 DEBUG 级，选“全部”才显示）")
         root.addWidget(self.txt_log, 1)
 
         self.lbl_status = QLabel(self)
-        self.lbl_status.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
+        self.lbl_status.setStyleSheet(f"color: {theme.SECONDARY}; font-size: 11px;")
         root.addWidget(self.lbl_status)
         self._update_status()
 

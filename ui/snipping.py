@@ -73,7 +73,7 @@ class SnippingWidget(QWidget):
                 painter.drawPixmap(select_rect, self.full_screen_pixmap, select_rect)
 
                 # 绘制边框
-                pen = QPen(QColor(theme.SUCCESS), 2, Qt.SolidLine)
+                pen = QPen(QColor(255, 255, 255), 1.5, Qt.DashLine)
                 painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRect(select_rect)
