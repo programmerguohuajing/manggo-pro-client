@@ -306,3 +306,45 @@ class GlobalKeyboardHook:
             # 有界等待旧线程收尾，让 start() 的“等旧线程”逻辑多数时候
             # 不用等；等不到也不阻塞界面。
             self._thread.join(timeout=1.0)
+
+
+def hook_self_check(hook) -> tuple:
+    """启动前自检：装钩子之前先证明钩子不会吞键，任一点失败都拒绝装钩子。
+
+    1.0.15 的教训：钩子一旦装错（CallNextHookEx 的 lParam 声明成
+    LPARAM，POINTER 转不过去抛 ArgumentError），回调一抛异常就返回
+    垃圾值吞键，全系统打不出字。所以这里在装钩子之前验证两点：
+    1) Windows 下 CallNextHookEx 的 lParam 声明必须是 c_void_p；
+    2) 回调 wrapper 必须兜底：内层抛任何异常时外层返回 0（放行）。
+    第 2 点用探针验证：临时把内层换成必抛的函数，调外层必须得 0，
+    验完原样恢复，不碰真实 user32、不注任何按键，任何平台都可跑。
+    返回 (ok, 明细字符串)。
+    """
+    problems = []
+    if IS_WINDOWS:
+        try:
+            argtypes = user32.CallNextHookEx.argtypes
+        except Exception as e:
+            problems.append(f"CallNextHookEx argtypes 不可读：{e}")
+            argtypes = None
+        if argtypes is not None and (len(argtypes) < 4 or argtypes[3] is not ctypes.c_void_p):
+            problems.append("CallNextHookEx lParam 声明不是 c_void_p（1.0.15 同款错误）")
+    original_inner = hook._hook_callback_inner
+
+    def _boom(nCode, wParam, lParam):
+        raise RuntimeError("self-check probe")
+
+    try:
+        hook._hook_callback_inner = _boom
+        try:
+            ret = hook._hook_callback(0, WM_KEYDOWN, None)
+        except Exception as e:
+            problems.append(f"回调 wrapper 未兜底异常：{e}")
+            ret = None
+        if ret is not None and ret != 0:
+            problems.append(f"回调 wrapper 在内层异常时返回 {ret}（应为 0 放行）")
+    finally:
+        hook._hook_callback_inner = original_inner
+    if problems:
+        return False, "；".join(problems)
+    return True, "CallNextHookEx lParam=c_void_p；回调 wrapper 异常时返回 0"

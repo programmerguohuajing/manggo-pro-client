@@ -51,9 +51,9 @@ from core.translator import TranslationManager
 _stage("import-translator-done")
 from core.replacer import InPlaceReplacer, _send_ctrl_c_input, _release_modifiers, VK_MENU, VK_CONTROL, VK_SHIFT
 from core.autostart import is_autostart_enabled, set_autostart_enabled
-from core.version import get_channel
+from core.version import get_channel, get_version
 _stage("import-replacer-done")
-from core.hook import GlobalKeyboardHook
+from core.hook import GlobalKeyboardHook, hook_self_check
 _stage("import-hook-done")
 from core.logging import error as _log_error, info as _log_info
 _stage("import-logging-done")
@@ -166,10 +166,23 @@ class AppCoordinator(QObject):
             max_interval=self.config.get("max_interval_ms", 750) / 1000.0,
             hotkeys=normalize_hotkeys(self.config.get("hotkeys")),
         )
-        self.hook.start()
-
-        # 欢迎提示
-        self.toast.show_message("success", "Manggo Pro 全功能已就绪 (双击托盘打开设置, 3次空格转译)")
+        # 1.0.17 自检：装钩子之前先证明钩子不会吞键（1.0.15 的教训）。
+        # 自检失败 → 拒绝装钩子（宁可热键不用，也不能让用户打不出字），
+        # 原因写进日志并弹提示；通过才 start，并记下安装结果。
+        _log_info("APP", f"startup version={get_version()} channel={get_channel()}")
+        _ok, _detail = hook_self_check(self.hook)
+        if _ok:
+            self.hook.start()
+            _log_info(
+                "HOOK",
+                f"self-check OK ({_detail}); start done: running={self.hook._running} "
+                f"hook_id={self.hook.hook_id} "
+                f"thread_alive={self.hook._thread.is_alive() if self.hook._thread else False}",
+            )
+            self.toast.show_message("success", "Manggo Pro 已就绪 · 钩子自检通过（双击托盘打开设置，3次空格转译）")
+        else:
+            _log_error("HOOK", f"SELF-CHECK FAILED, hook NOT started: {_detail}")
+            self.toast.show_message("failed", f"钩子自检失败，已禁用快捷转译以保护输入：{_detail}")
 
     def _engine_label(self) -> str:
         if self.config.get("engine") == "llm":
@@ -356,6 +369,13 @@ class AppCoordinator(QObject):
             self.toast.show_message("error", "快捷转译仅支持 Windows")
             return
         if enabled:
+            # 恢复也要先自检：启动时自检没过的钩子，恢复时同样不许装。
+            _ok, _detail = hook_self_check(self.hook)
+            if not _ok:
+                _log_error("HOOK", f"SELF-CHECK FAILED on resume, hook NOT started: {_detail}")
+                self.toast.show_message("failed", f"钩子自检失败，快捷转译保持关闭：{_detail}")
+                self.tray.set_enabled(False)
+                return
             self.hook.start()
             self.toast.show_message("success", "快捷转译已恢复")
         else:
