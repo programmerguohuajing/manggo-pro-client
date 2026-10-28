@@ -28,7 +28,7 @@ if IS_WINDOWS:
 
 from core.hotkeys import normalize_hotkeys
 from core.translator import TranslationManager
-from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL
+from core.replacer import InPlaceReplacer, _send_ctrl_c, _send_ctrl_c_input, _send_key, _safe_copy, _release_modifiers, VK_MENU, VK_CONTROL, VK_ESCAPE
 from core.hook import GlobalKeyboardHook
 from core.logging import error as _log_error, info as _log_info
 from core.ocr import ocr_engine
@@ -181,6 +181,19 @@ class AppCoordinator(QObject):
         time.sleep(0.04)
         _release_modifiers()
         time.sleep(0.03)
+
+        # 2026-10-28 实测定性：托盘菜单触发（不经 Alt）复制正常，
+        # Alt+Q 触发复制失败——钩子只吞 Q，Alt 本尊照样到了目标
+        # 程序手里，程序把光秃秃的 Alt 当成菜单激活，焦点跑到菜单
+        # 上，Ctrl+C 就落不到选区里；菜单模式松开 Alt 也不退出，
+        # 所以重试也失败。复制前先发一个 Esc 退出菜单模式。
+        # 注意顺序：Esc 必须在释放修饰键之后发，否则会变成 Alt+Esc
+        # 切窗口。
+        _send_key(VK_ESCAPE)
+        time.sleep(0.02)
+        _send_key(VK_ESCAPE, is_up=True)
+        time.sleep(0.08)
+        _log_info("APP", "[SELECTION] Sent Esc to exit Alt menu mode")
 
         # 只认序号变化后的剪贴板：Ctrl+C 没让剪贴板变化，说明这次
         # 根本没复制到选中文字。绝不能兜底读当前剪贴板——那是旧内容
