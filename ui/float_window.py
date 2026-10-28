@@ -49,9 +49,9 @@ class FloatResultWindow(QWidget):
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 45))
-        shadow.setOffset(0, 4)
+        shadow.setBlurRadius(12)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        shadow.setOffset(0, 2)
         self.card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(self.card)
@@ -62,7 +62,7 @@ class FloatResultWindow(QWidget):
         top_bar = QHBoxLayout()
         self.lbl_title = QLabel("Manggo 快捷翻译", self.card)
         self.lbl_title.setFont(QFont("Microsoft YaHei", 9, QFont.Bold))
-        self.lbl_title.setStyleSheet(f"color: {theme.ACCENT}; border: none;")
+        self.lbl_title.setStyleSheet(f"color: {theme.INK}; border: none;")
         top_bar.addWidget(self.lbl_title)
 
         top_bar.addStretch()
@@ -70,7 +70,7 @@ class FloatResultWindow(QWidget):
         self.btn_star = QPushButton("☆", self.card)
         self.btn_star.setToolTip("收藏到生词本")
         self.btn_star.setFixedSize(24, 24)
-        self.btn_star.setStyleSheet(f"border: none; font-size: 15px; color: {theme.STAR}; cursor: pointer;")
+        self._refresh_star()
         self.btn_star.clicked.connect(self._toggle_star)
         top_bar.addWidget(self.btn_star)
 
@@ -84,15 +84,17 @@ class FloatResultWindow(QWidget):
 
         # 2. 原文展示与操作
         h_src_bar = QHBoxLayout()
-        h_src_bar.addWidget(QLabel("原文:", self.card))
+        lbl_src_tag = QLabel("原文:", self.card)
+        lbl_src_tag.setStyleSheet(f"color: {theme.INK};")
+        h_src_bar.addWidget(lbl_src_tag)
         h_src_bar.addStretch()
-        btn_speak_src = QPushButton("🔊 朗读", self.card)
+        btn_speak_src = QPushButton("朗读", self.card)
         btn_speak_src.setFixedSize(60, 20)
         btn_speak_src.setStyleSheet(theme.small_action_stylesheet())
         btn_speak_src.clicked.connect(lambda: tts_player.speak(self.current_source_text))
         h_src_bar.addWidget(btn_speak_src)
 
-        btn_copy_src = QPushButton("📋 复制", self.card)
+        btn_copy_src = QPushButton("复制", self.card)
         btn_copy_src.setFixedSize(60, 20)
         btn_copy_src.setStyleSheet(theme.small_action_stylesheet())
         btn_copy_src.clicked.connect(lambda: pyperclip.copy(self.current_source_text))
@@ -108,17 +110,17 @@ class FloatResultWindow(QWidget):
         # 3. 译文展示与操作
         h_tgt_bar = QHBoxLayout()
         lbl_trans_tag = QLabel("译文:", self.card)
-        lbl_trans_tag.setStyleSheet(f"font-weight: bold; color: {theme.SUCCESS};")
+        lbl_trans_tag.setStyleSheet(f"font-weight: bold; color: {theme.INK};")
         h_tgt_bar.addWidget(lbl_trans_tag)
         h_tgt_bar.addStretch()
 
-        btn_speak_tgt = QPushButton("🔊 朗读", self.card)
+        btn_speak_tgt = QPushButton("朗读", self.card)
         btn_speak_tgt.setFixedSize(60, 20)
         btn_speak_tgt.setStyleSheet(theme.small_action_stylesheet())
         btn_speak_tgt.clicked.connect(lambda: tts_player.speak(self.current_target_text))
         h_tgt_bar.addWidget(btn_speak_tgt)
 
-        btn_copy_tgt = QPushButton("📋 复制", self.card)
+        btn_copy_tgt = QPushButton("复制", self.card)
         btn_copy_tgt.setFixedSize(60, 20)
         btn_copy_tgt.setStyleSheet(theme.small_action_stylesheet())
         btn_copy_tgt.clicked.connect(lambda: pyperclip.copy(self.current_target_text))
@@ -166,7 +168,7 @@ class FloatResultWindow(QWidget):
         self.current_source_text = source_text
         self.current_target_text = target_text
         self.is_starred = False
-        self.btn_star.setText("☆")
+        self._refresh_star()
 
         self.txt_source.setPlainText(source_text)
         self.txt_target.setPlainText(target_text)
@@ -200,7 +202,15 @@ class FloatResultWindow(QWidget):
         except Exception:
             pass
 
+    def _refresh_star(self):
+        """星标：已收藏取主题橙，未收藏取浅灰（方案 A 星标规则）。"""
+        color = theme.STAR if self.is_starred else theme.STAR_INACTIVE
+        self.btn_star.setText("★" if self.is_starred else "☆")
+        self.btn_star.setStyleSheet(
+            f"border: none; font-size: 15px; color: {color}; cursor: pointer;"
+        )
+
     def _toggle_star(self):
         if self.current_record_id > 0:
             self.is_starred = db.toggle_star(self.current_record_id)
-            self.btn_star.setText("★" if self.is_starred else "☆")
+            self._refresh_star()
