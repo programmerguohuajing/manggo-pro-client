@@ -1,4 +1,4 @@
-[中文](README.md) | English
+[中文](README.md) | English | [Live intro page](https://programmerguohuajing.github.io/manggo-pro-client/)
 
 # Manggo Pro Client (Full-featured desktop translation & dictation workbench)
 
