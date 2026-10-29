@@ -5,8 +5,10 @@ Win+H 听写、SAPI 朗读、单实例互斥体都是 Windows 专属。
 跨平台打包的分层（见 packaging/README.md）：
 - 全平台可用：PySide6 界面、翻译通道、SQLite 历史、截图 OCR（RapidOCR）、
   托盘、设置、诊断控制台。
-- 仅 Windows：全局热键（Alt+Q/W/M/Space）、三次空格就地转译、
-  划选翻译的剪贴板抓取、Win+H 语音听写、UIPI 提权、单实例互斥体。
+- 全局热键与就地转译：Windows 全量（Alt+Q/W/M/Space + 三次空格）；
+  macOS 首批三次空格 + Alt+Q/W（CGEventTap，见 core/hook_macos），
+  Alt+M/Space 与 Linux 版尚未实现（托盘显示“暂不可用”）。
+- 仅 Windows：Win+H 语音听写、UIPI 提权、单实例互斥体。
 - 朗读：Windows 走 SAPI；macOS 走系统 say；Linux 尝试 espeak，
   未安装则记日志不崩溃。
 

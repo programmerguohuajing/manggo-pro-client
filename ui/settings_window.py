@@ -766,7 +766,7 @@ class SettingsWindow(QWidget):
         self.chk_triple_space.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         c_layout.addWidget(self.chk_triple_space)
 
-        if not IS_WINDOWS:
+        if not IS_WINDOWS and not IS_MAC:
             lbl_platform = QLabel("当前平台暂不支持全局热键与三次空格转译（开发中）；这里的开关是你的偏好，功能上线后即按此生效，托盘因此显示“热键暂不可用”而非“已暂停”。")
             lbl_platform.setProperty("class", "SectionDesc")
             lbl_platform.setWordWrap(True)

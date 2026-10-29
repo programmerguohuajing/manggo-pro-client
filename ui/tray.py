@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 from ui import theme
 from ui.icons import get_app_icon
 from core.hotkeys import normalize_hotkeys
-from core.platform import IS_WINDOWS
+from core.platform import IS_WINDOWS, IS_MAC
 
 # 兼容旧导入：main.py 之前从这里取图标，现图标住在 ui/icons.py。
 __all__ = ["TrayManager", "get_app_icon"]
@@ -105,7 +105,7 @@ class TrayManager(QObject):
         self.act_voice.setText(f"语音输入与听写\t{hk['voice']}")
 
     def _refresh_status(self):
-        if not IS_WINDOWS:
+        if not IS_WINDOWS and not IS_MAC:
             # 非 Windows：钩子根本不存在，“已暂停”会误导（用户没暂停过，
             # 只是平台还没实现）；托盘只陈述平台状态，不给死开关。
             # 设置页的勾选是偏好，热键上线后即按此生效（见设置页附注）。
