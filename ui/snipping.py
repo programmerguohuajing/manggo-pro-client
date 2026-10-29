@@ -12,6 +12,7 @@ from core.logging import debug as _log_debug
 
 class SnippingWidget(QWidget):
     screenshot_captured = Signal(object)  # 发射 PIL Image
+    snipping_failed = Signal(str)  # 抓屏失败原因（接 toast，不弹遮罩）
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,6 +40,16 @@ class SnippingWidget(QWidget):
         primary = QGuiApplication.primaryScreen()
         self.full_screen_pixmap = primary.grabWindow(0, total_rect.x(), total_rect.y(), total_rect.width(), total_rect.height())
 
+        # macOS 未给“屏幕录制”权限时 grabWindow 只返回黑图（或空图）：
+        # 原来会直接弹一个全屏黑遮罩，用户看到的就是“黑屏”，还继续跑 OCR。
+        # 这里先验：空图或 5x5 采样全黑 → 不弹遮罩，直接报权限原因。
+        if self._grab_is_blank():
+            self.snipping_failed.emit(
+                "截图失败：未能获取屏幕内容。请在系统设置 → 隐私与安全性 → "
+                "屏幕录制中允许 ManggoProClient，然后重试。"
+            )
+            return
+
         self.begin_point = QPoint()
         self.end_point = QPoint()
         self.is_snipping = False
@@ -54,6 +65,23 @@ class SnippingWidget(QWidget):
             ctypes.windll.user32.SetForegroundWindow(hwnd)
         except Exception as e:
             _log_debug("SNIPPING", f"SetWindowPos/SetForegroundWindow failed: {e}")
+
+    def _grab_is_blank(self):
+        """抓到的图是否为空/全黑（macOS 无屏幕录制权限时的典型产物）。"""
+        pm = self.full_screen_pixmap
+        if pm is None or pm.isNull():
+            return True
+        img = pm.toImage()
+        w, h = img.width(), img.height()
+        if w == 0 or h == 0:
+            return True
+        for gx in range(5):
+            for gy in range(5):
+                x = min(w - 1, int((gx + 0.5) * w / 5))
+                y = min(h - 1, int((gy + 0.5) * h / 5))
+                if img.pixelColor(x, y).rgb() & 0xFFFFFF != 0:
+                    return False
+        return True
 
     def _to_device_rect(self, logical_rect):
         """逻辑坐标矩形 → 设备像素矩形。

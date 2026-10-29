@@ -92,8 +92,22 @@ jobs:
       # opencv 4.10.0.84（最新带 12_0 轮子的版本）。Windows/Linux 不动。
       - name: Pin macOS 12-compatible OCR stack
         run: |
-          pip install "https://files.pythonhosted.org/packages/d0/97/ba2074e92b7befea137e77ea8471e768bbd87c339b7e8c9f5a931949f977/numpy-2.5.4-cp312-cp312-macosx_10_13_x86_64.whl"
+          pip install --force-reinstall --no-deps "https://files.pythonhosted.org/packages/d0/97/ba2074e92b7befea137e77ea8471e768bbd87c339b7e8c9f5a931949f977/numpy-2.5.4-cp312-cp312-macosx_10_13_x86_64.whl"
           pip install "onnxruntime==1.19.0" "opencv-python==4.10.0.84"
+      # 校验钉住的 numpy 确实是老轮子：同版本换轮子时 pip 默认“已满足”会
+      # 跳过（1.0.22 就是这么漏网的），这里直接读装上的 .so，含 NEWLAPACK
+      # 就炸掉构建，不再让坏轮子静默流到发布里。
+      - name: Verify installed numpy has no NEWLAPACK
+        run: |
+          python - <<'EOF'
+          import glob, os
+          import numpy
+          sos = glob.glob(os.path.join(os.path.dirname(numpy.__file__), "_core", "_multiarray_umath*.so"))
+          assert sos, "multiarray_umath not found"
+          data = open(sos[0], "rb").read()
+          assert b"NEWLAPACK" not in data, "installed numpy references NEWLAPACK (14_0 wheel slipped in)"
+          print("numpy OK:", sos[0])
+          EOF
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e
@@ -159,8 +173,22 @@ jobs:
       # macOS 专属：同 Intel job 的说明，ARM 用 11_0_arm64 的 numpy 老轮子。
       - name: Pin macOS 12-compatible OCR stack
         run: |
-          pip install "https://files.pythonhosted.org/packages/ff/a9/bac826765e971d8e16e2064e9ac7525fd69b40ac17c905033a7f5442023f/numpy-2.5.4-cp312-cp312-macosx_11_0_arm64.whl"
+          pip install --force-reinstall --no-deps "https://files.pythonhosted.org/packages/ff/a9/bac826765e971d8e16e2064e9ac7525fd69b40ac17c905033a7f5442023f/numpy-2.5.4-cp312-cp312-macosx_11_0_arm64.whl"
           pip install "onnxruntime==1.19.0" "opencv-python==4.10.0.84"
+      # 校验钉住的 numpy 确实是老轮子：同版本换轮子时 pip 默认“已满足”会
+      # 跳过（1.0.22 就是这么漏网的），这里直接读装上的 .so，含 NEWLAPACK
+      # 就炸掉构建，不再让坏轮子静默流到发布里。
+      - name: Verify installed numpy has no NEWLAPACK
+        run: |
+          python - <<'EOF'
+          import glob, os
+          import numpy
+          sos = glob.glob(os.path.join(os.path.dirname(numpy.__file__), "_core", "_multiarray_umath*.so"))
+          assert sos, "multiarray_umath not found"
+          data = open(sos[0], "rb").read()
+          assert b"NEWLAPACK" not in data, "installed numpy references NEWLAPACK (14_0 wheel slipped in)"
+          print("numpy OK:", sos[0])
+          EOF
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e

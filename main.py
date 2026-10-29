@@ -201,6 +201,7 @@ class AppCoordinator(QObject):
 
         # 截图完成送入 OCR
         self.snipping_widget.screenshot_captured.connect(self._handle_screenshot)
+        self.snipping_widget.snipping_failed.connect(lambda msg: self.notify_signal.emit("failed", msg))
 
         # 托盘与窗口联动 (100% 对齐原版功能)
         self.tray.open_main_requested.connect(lambda: force_activate_window(self.main_win))
