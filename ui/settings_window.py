@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, Signal, QSize, QEvent, QThread
 from PySide6.QtWidgets import (
     QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QSpinBox, QSlider, QPushButton, QCheckBox, QFrame,
-    QMessageBox, QTextEdit, QStackedWidget, QListWidget, QListWidgetItem,
+    QTextEdit, QStackedWidget, QListWidget, QListWidgetItem,
     QGraphicsDropShadowEffect, QScrollArea, QSizePolicy, QListView
 )
 from PySide6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
@@ -29,6 +29,7 @@ from core.hotkeys import (
 )
 from core.platform import IS_WINDOWS, IS_MAC, IS_LINUX
 from ui import theme
+from ui import themed_dialog
 from ui.theme import SETTINGS_STYLESHEET
 from ui.update_dialog import UpdateDialog
 from core.logging import error as _log_error, debug as _log_debug
@@ -1143,7 +1144,7 @@ class SettingsWindow(QWidget):
             return
         for other, value in self._hotkey_values.items():
             if other != action and value == combo:
-                QMessageBox.warning(self, "组合键重复", f"“{combo}”已用于【{ACTION_NAMES[other]}】，请换一个。")
+                themed_dialog.warning(self, "组合键重复", f"“{combo}”已用于【{ACTION_NAMES[other]}】，请换一个。")
                 return
         self._hotkey_values[action] = combo
         self._hotkey_badges[action].setText(combo)
@@ -1345,13 +1346,13 @@ class SettingsWindow(QWidget):
 
         channel = get_channel()
         if sys.platform == "win32" and channel == "安装版":
-            reply = QMessageBox.question(
+            if themed_dialog.question(
                 self,
                 "下载完成",
                 "安装器已下载，是否现在退出程序并启动安装器进行覆盖安装？\n"
                 "（同一目录覆盖安装，历史记录和配置不受影响。）",
-            )
-            if reply == QMessageBox.Yes:
+                yes_text="退出并安装",
+            ):
                 subprocess.Popen([path])
                 app = QApplication.instance()
                 if app is not None:
@@ -1360,25 +1361,24 @@ class SettingsWindow(QWidget):
                 self.lbl_update_status.setText(f"安装器已下载到：{path}")
             return
         if sys.platform == "win32":
-            box = QMessageBox(self)
-            box.setWindowTitle("下载完成")
-            box.setText(f"新版便携包已下载到：\n{path}\n\n请退出程序后解压覆盖旧文件。")
-            btn_folder = box.addButton("打开下载文件夹", QMessageBox.AcceptRole)
-            box.addButton("知道了", QMessageBox.RejectRole)
-            box.exec()
-            if box.clickedButton() is btn_folder:
+            picked = themed_dialog.choose(
+                self, "info", "下载完成",
+                f"新版便携包已下载到：\n{path}\n\n请退出程序后解压覆盖旧文件。",
+                [("打开下载文件夹", "primary"), ("知道了", "secondary")],
+            )
+            if picked == 0:
                 webbrowser.open(updater.download_dir())
             self.lbl_update_status.setText(f"已下载到：{path}")
             return
         if sys.platform == "darwin":
             webbrowser.open(path)
-            QMessageBox.information(
+            themed_dialog.info(
                 self, "下载完成", "安装磁盘映像已打开，请把它拖到 Applications 覆盖旧版。"
             )
             self.lbl_update_status.setText(f"已下载到：{path}")
             return
         webbrowser.open(path)
-        QMessageBox.information(
+        themed_dialog.info(
             self,
             "下载完成",
             "安装包已用系统默认方式打开，请按提示完成安装；\n"
@@ -1387,14 +1387,14 @@ class SettingsWindow(QWidget):
         self.lbl_update_status.setText(f"已下载到：{path}")
 
     def _handle_mac_self_update(self, payload):
-        reply = QMessageBox.question(
+        if not themed_dialog.question(
             self,
             "下载完成",
             "新版已下载并校验通过。现在退出程序、完成覆盖更新并自动重启？\n"
             "（历史记录和配置不受影响；旧版本会保留一份 .bak 备份，"
             "更新失败会自动恢复旧版。）",
-        )
-        if reply != QMessageBox.Yes:
+            yes_text="退出并更新",
+        ):
             self.lbl_update_status.setText(f"新版已下载到：{payload['path']}（未安装）")
             return
         self.lbl_update_status.setText("正在退出并完成更新…")
@@ -1547,10 +1547,10 @@ class SettingsWindow(QWidget):
         new_cfg = self._gather_config()
         err = validate_hotkeys(new_cfg.get("hotkeys"))
         if err:
-            QMessageBox.warning(self, "热键无效", err + "，请重新修改后再保存。")
+            themed_dialog.warning(self, "热键无效", err + "，请重新修改后再保存。")
             return
         if not save_config(new_cfg):
-            QMessageBox.critical(self, "保存失败", "配置未能写入磁盘（见日志），请检查目录权限后重试。")
+            themed_dialog.error(self, "保存失败", "配置未能写入磁盘（见日志），请检查目录权限后重试。")
             self.lbl_status.setText("❌ 配置保存失败")
             return
         self.config = new_cfg
@@ -1559,5 +1559,5 @@ class SettingsWindow(QWidget):
             self.btn_go_main.setText(f"打开主工作台 ({new_cfg['hotkeys']['workbench']})")
         self.lbl_dirty.setVisible(False)
         self.lbl_status.setText("✓ 配置已保存并实时生效")
-        QMessageBox.information(self, "保存成功", "所有偏好配置已成功保存并立即生效！")
+        themed_dialog.success(self, "保存成功", "所有偏好配置已成功保存并立即生效！")
         self.hide()

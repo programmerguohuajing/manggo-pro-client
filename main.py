@@ -32,7 +32,7 @@ def _stage(msg: str):
 _stage("main-enter")
 
 from PySide6.QtCore import Qt, QObject, Signal, Slot
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 _stage("import-pyside6-done")
 import pyperclip
 _stage("import-pyperclip-done")

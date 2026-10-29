@@ -6,7 +6,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QMessageBox
+    QCheckBox
 )
 import pyperclip
 
@@ -15,6 +15,7 @@ from core.database import db
 from core.platform import IS_MAC
 
 from ui import theme
+from ui import themed_dialog
 
 class HistoryWindow(QWidget):
     def __init__(self, parent=None):
@@ -128,9 +129,9 @@ class HistoryWindow(QWidget):
     def _import_from_original(self):
         n = db.sync_from_original_manggo()
         if n > 0:
-            QMessageBox.information(self, "导入完成", f"从原版 Manggo 导入了 {n} 条新记录。")
+            themed_dialog.success(self, "导入完成", f"从原版 Manggo 导入了 {n} 条新记录。")
         else:
-            QMessageBox.information(self, "导入完成", "没有新记录（原版数据库不存在或记录都已导入）。")
+            themed_dialog.success(self, "导入完成", "没有新记录（原版数据库不存在或记录都已导入）。")
         self.refresh_data()
 
     def refresh_data(self):
@@ -191,6 +192,6 @@ class HistoryWindow(QWidget):
                 self.lbl_status.setText(f"已复制：{item.text()[:30]}")
 
     def _clear_unstarred(self):
-        if QMessageBox.question(self, "确认清空", "是否确定清空未收藏的常规翻译历史？（生词本中的星标词汇将被完整保留）") == QMessageBox.Yes:
+        if themed_dialog.question(self, "确认清空", "是否确定清空未收藏的常规翻译历史？（生词本中的星标词汇将被完整保留）", yes_text="确认清空"):
             db.clear_all()
             self.refresh_data()
