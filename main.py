@@ -573,19 +573,25 @@ class AppCoordinator(QObject):
         # 组合键改动即时生效：只重建判定表，不用重启钩子线程；
         # 钩子暂停中（托盘暂停）改的键，恢复时按新表工作。
         self.hook.update_hotkeys(new_cfg.get("hotkeys"))
-        # 开机自启（Windows 任务计划）：只在目标状态与实际不一致时
-        # 动 schtasks；失败时提示，设置页下次打开仍以实际状态为准。
-        # 开机自启只对安装版动任务计划（便携版在 settings 里已禁用勾选，
-        # 这里是第二道守卫：旧配置里残留的 True 也不再尝试创建任务）。
-        if IS_WINDOWS and get_channel() == "安装版":
+        # 开机自启：只在目标状态与实际不一致时才动后端；失败时提示，
+        # 设置页下次打开仍以实际状态为准。Windows 只对安装版动任务
+        # 计划（便携版在 settings 里已禁用勾选，这里是第二道守卫：
+        # 旧配置里残留的 True 也不再尝试创建任务）；macOS/Linux 是
+        # 用户级自启（LaunchAgent / XDG），无提权问题，守卫在
+        # core/autostart 内部（如 DMG 内运行拒绝）。
+        _auto_applies = (IS_WINDOWS and get_channel() == "安装版") or IS_MAC or IS_LINUX
+        if _auto_applies:
+            _auto_fail_msg = (
+                "开机自启设置失败（需要管理员权限）" if IS_WINDOWS else "开机自启设置失败"
+            )
             try:
                 want_auto = bool(new_cfg.get("auto_start", False))
                 if is_autostart_enabled() != want_auto and not set_autostart_enabled(want_auto):
-                    self.notify_signal.emit("failed", "开机自启设置失败（需要管理员权限）")
+                    self.notify_signal.emit("failed", _auto_fail_msg)
             except Exception as e:
                 # is_autostart_enabled 本身抛错时，以前静默，用户的勾选白改了。
                 _log_error("AUTOSTART", f"auto_start apply failed: {e}")
-                self.notify_signal.emit("failed", "开机自启设置失败（需要管理员权限）")
+                self.notify_signal.emit("failed", _auto_fail_msg)
         self.tray.set_engine_label(self._engine_label())
         self.tray.set_hotkeys(new_cfg.get("hotkeys"))
         self.main_win.set_hotkeys(new_cfg.get("hotkeys"))

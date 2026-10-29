@@ -975,7 +975,11 @@ class SettingsWindow(QWidget):
         c_layout.setSpacing(12)
 
         # 待保存的组合键：点徽章改这里，点底部保存才写 config.json。
-        # 非 Windows 上全局钩子不存在，徽章不可点，只作展示。
+        # 可改范围按平台后端能力：Windows 四项全可改；macOS/Linux 的钩子
+        # 只注册了划选与截图两个动作（工作台/语音未接入这两平台），所以
+        # 这两项可改、其余只作展示。主程序保存时对各平台钩子统一调
+        # update_hotkeys，改完即时生效（此前界面按“非 Windows 无钩子”
+        # 一律锁死，是钩子上线前的旧守卫，用户截图里能看到）。
         self._hotkey_values = normalize_hotkeys(self.config.get("hotkeys"))
         self._hotkey_badges = {}
         self._hotkey_edits = {}
@@ -993,6 +997,12 @@ class SettingsWindow(QWidget):
             (None, "双击系统托盘图标", "打开偏好设置中心", "随时快速呼出本设置面板，调节连击灵敏度与切换翻译通道。"),
             (None, "Ctrl + Enter", "工作台立即翻译", "在主翻译工作台原文编辑框内一键提交翻译请求。"),
         ]
+
+        editable_actions = set()
+        if IS_WINDOWS:
+            editable_actions = {a for a, *_ in rows if a is not None}
+        elif IS_MAC or IS_LINUX:
+            editable_actions = {"selection", "screenshot"}
 
         for action, key_text, name, desc in rows:
             # V2：行不再是浅灰小卡片，改成透明行 + 底部一根细分隔线。
@@ -1012,7 +1022,7 @@ class SettingsWindow(QWidget):
 
             badge_text = self._hotkey_values[action] if action is not None else key_text
             # 组合键徽章：浅灰底等宽文字；Windows 下可点，点击后变成输入框。
-            if action is not None and IS_WINDOWS:
+            if action in editable_actions:
                 lbl_badge = ClickableLabel(badge_text)
                 lbl_badge.clicked.connect(lambda _=False, a=action: self._start_hotkey_edit(a))
             else:
@@ -1022,7 +1032,7 @@ class SettingsWindow(QWidget):
                 self._hotkey_badges[action] = lbl_badge
             h_top.addWidget(lbl_badge)
 
-            if action is not None and IS_WINDOWS:
+            if action in editable_actions:
                 edit = HotkeyEdit()
                 edit.setText(badge_text)
                 edit.setFixedWidth(160)
@@ -1048,7 +1058,7 @@ class SettingsWindow(QWidget):
             lbl_d.setWordWrap(True)
             r_l.addWidget(lbl_d)
 
-            if action is not None and IS_WINDOWS:
+            if action in editable_actions:
                 lbl_hint = QLabel("正在监听按键… Enter 确认，Esc 取消。")
                 lbl_hint.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
                 lbl_hint.setVisible(False)
@@ -1058,11 +1068,13 @@ class SettingsWindow(QWidget):
             c_layout.addWidget(row)
 
         # 修改方法说明 + 恢复默认：放在卡片底部，不随行循环重复。
-        self.lbl_hotkey_status = QLabel(
-            "修改方法：点组合键变成输入框后直接按下组合键（需带 Alt / Ctrl / Shift，Win 键不支持）；Enter 确认，Esc 取消。"
-            if IS_WINDOWS else
-            "全局热键仅支持 Windows，当前平台下组合键不可修改；这里只展示默认组合键。"
-        )
+        if IS_WINDOWS:
+            _hk_text = "修改方法：点组合键变成输入框后直接按下组合键（需带 Alt / Ctrl / Shift，Win 键不支持）；Enter 确认，Esc 取消。"
+        elif IS_MAC or IS_LINUX:
+            _hk_text = "修改方法：点组合键变成输入框后直接按下组合键（需带 Alt / Ctrl / Shift）；Enter 确认，Esc 取消。工作台与语音输入暂仅 Windows 支持，其组合键在此只作展示。"
+        else:
+            _hk_text = "当前平台暂不支持全局热键；这里只展示默认组合键。"
+        self.lbl_hotkey_status = QLabel(_hk_text)
         self._hotkey_method_text = self.lbl_hotkey_status.text()
         self.lbl_hotkey_status.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
         self.lbl_hotkey_status.setWordWrap(True)
@@ -1072,7 +1084,7 @@ class SettingsWindow(QWidget):
         h_restore.addStretch()
         btn_restore = QPushButton("恢复默认")
         btn_restore.setProperty("class", "SecondaryBtn")
-        btn_restore.setEnabled(IS_WINDOWS)
+        btn_restore.setEnabled(bool(editable_actions))
         btn_restore.clicked.connect(self._restore_default_hotkeys)
         h_restore.addWidget(btn_restore)
         c_layout.addLayout(h_restore)
@@ -1198,19 +1210,26 @@ class SettingsWindow(QWidget):
         update_row.addWidget(self.lbl_update_status, 1)
         c_l.addLayout(update_row)
 
-        # 开机自启（仅 Windows）：任务计划方式，登录时静默提权启动，
-        # 不走注册表 Run（打包版带 manifest，Run 会在每次开机时弹 UAC）。
-        # 初始勾选状态由 _load_values 按任务计划实际状态回填，这里只建控件。
-        from core.platform import IS_WINDOWS as _IS_WIN
+        # 开机自启：Windows 任务计划（登录时静默提权，不走注册表 Run——
+        # 打包版带 manifest，Run 会在每次开机时弹 UAC）；macOS 用
+        # LaunchAgent、Linux 用 XDG 自启（都是用户级，不提权）。
+        # 初始勾选状态由 _load_values 按实际状态回填，这里只建控件。
+        # 此前只有 Windows 建这一行，Mac 上该位置是空白（用户截图反馈）。
+        from core.platform import IS_MAC as _IS_MAC, IS_WINDOWS as _IS_WIN
         if _IS_WIN:
-            auto_row = QHBoxLayout()
-            self.chk_auto_start = QCheckBox("开机自启", card)
-            auto_row.addWidget(self.chk_auto_start)
-            lbl_auto_desc = QLabel("登录时通过任务计划静默启动（最高权限，不弹 UAC）", card)
-            lbl_auto_desc.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 12px;")
-            lbl_auto_desc.setWordWrap(True)
-            auto_row.addWidget(lbl_auto_desc, 1)
-            c_l.addLayout(auto_row)
+            _auto_desc = "登录时通过任务计划静默启动（最高权限，不弹 UAC）"
+        elif _IS_MAC:
+            _auto_desc = "登录时自动启动（LaunchAgent，用户级，无需管理员权限）"
+        else:
+            _auto_desc = "登录时自动启动（XDG 自启，用户级）"
+        auto_row = QHBoxLayout()
+        self.chk_auto_start = QCheckBox("开机自启", card)
+        auto_row.addWidget(self.chk_auto_start)
+        lbl_auto_desc = QLabel(_auto_desc, card)
+        lbl_auto_desc.setStyleSheet(f"color: {theme.TEXT_GRAY600}; font-size: 12px;")
+        lbl_auto_desc.setWordWrap(True)
+        auto_row.addWidget(lbl_auto_desc, 1)
+        c_l.addLayout(auto_row)
 
         l.addWidget(card)
 
@@ -1221,19 +1240,24 @@ class SettingsWindow(QWidget):
         cs_l.setContentsMargins(20, 20, 20, 20)
         cs_l.setSpacing(12)
 
-        # 状态指示：Windows 专属项在其他平台上如实标注，不谎报就绪。
-        from core.platform import IS_MAC, IS_WINDOWS
+        # 状态指示：按平台标注真实机制。Mac/Linux 的热键钩子已分别在
+        # 1.0.25/1.0.26 上线，这里此前还写着“仅 Windows”（用户截图可见），
+        # 与事实不符，一并改正。
+        from core.platform import IS_LINUX, IS_MAC, IS_WINDOWS
         if IS_WINDOWS:
+            hook_label = "键盘底层钩子 (WH_KEYBOARD_LL):"
             hook_status = "● 正常监听中 (无需管理员权限)"
             tts_status = "就绪 (Windows 原生秒发音)"
         elif IS_MAC:
-            hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
+            hook_label = "全局热键钩子 (CGEventTap):"
+            hook_status = "● 就绪 (需辅助功能授权，状态见托盘)"
             tts_status = "就绪 (macOS 系统 say)"
         else:
-            hook_status = "⚪ 当前平台暂不支持 (仅 Windows)"
+            hook_label = "全局热键钩子 (X11/XRecord):"
+            hook_status = "● 就绪 (Wayland 环境不可用)"
             tts_status = "🟡 需安装 espeak-ng 后可用"
         status_items = [
-            ("键盘底层钩子 (WH_KEYBOARD_LL):", hook_status),
+            (hook_label, hook_status),
             ("本地历史记录数据库 (SQLite):", "已挂载 (history.sqlite3)"),
             ("离线文字识别引擎 (RapidOCR):", "就绪 (支持中英混排离线识别)"),
             ("语音合成朗读 (TTS):", tts_status)
@@ -1443,12 +1467,19 @@ class SettingsWindow(QWidget):
                 chk_auto.setChecked(is_autostart_enabled())
             except Exception:
                 chk_auto.setChecked(bool(self.config.get("auto_start", False)))
-            # 便携版禁用勾选（渠道守卫在 core/autostart 里，界面这里同步禁用，
-            # 避免用户勾上又被拒绝的困惑）。
-            if get_channel() != "安装版":
+            # 禁用勾选的情形与 core/autostart 的守卫保持一致，避免用户
+            # 勾上又被拒绝的困惑：Windows 便携版禁用（提权风险）；
+            # macOS 在磁盘映像里运行时禁用（装到本地后路径才稳定）；
+            # Linux 用户级自启无此问题，不禁用。
+            from core.platform import IS_MAC as _IS_MAC2, IS_WINDOWS as _IS_WIN2
+            if _IS_WIN2 and get_channel() != "安装版":
                 chk_auto.setChecked(False)
                 chk_auto.setEnabled(False)
                 chk_auto.setToolTip("仅安装版支持开机自启：便携版位于用户可写目录，提权自启有风险")
+            elif _IS_MAC2 and os.path.abspath(sys.executable).startswith("/Volumes/"):
+                chk_auto.setChecked(False)
+                chk_auto.setEnabled(False)
+                chk_auto.setToolTip("正在磁盘映像中运行：请先把应用装到 Applications，开机自启才能生效")
 
     def _gather_config(self) -> dict:
         return {

@@ -1,4 +1,4 @@
-"""开机自启（Windows 任务计划）。
+"""开机自启：Windows 任务计划 / macOS LaunchAgent / Linux XDG 自启。
 
 为什么不用注册表 Run：打包版带 uac_admin manifest，注册表 Run 启动
 会在每次开机时弹一次 UAC（违背静默启动；点掉就等于没自启）。任务
@@ -12,16 +12,22 @@
   schtasks /CREATE 命令行改不了这一项，必须用 XML 定义任务。
 - 电池：笔记本上切换电池时不停止、不禁启动，否则合盖/拔电就掉线。
 - 已在运行：忽略新实例（程序自己还有单实例互斥，双重保险）。
+
+macOS 用 LaunchAgent（~/Library/LaunchAgents，用户级、登录启动、
+不提权，所以没有 Windows 那种便携版提权风险；只在磁盘映像里运行
+时拒绝，理由是路径会失效）。Linux 用 XDG 自启目录的 .desktop。
+两者的实际状态都以自启文件在不在为准。
 """
 
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
 from xml.sax.saxutils import escape as _xml_escape
 
 from core.logging import error as _log_error, debug as _log_debug
-from core.platform import IS_WINDOWS
+from core.platform import IS_LINUX, IS_MAC, IS_WINDOWS
 
 TASK_NAME = "ManggoProClient"
 
@@ -95,7 +101,12 @@ def _task_xml() -> str:
 
 
 def is_autostart_enabled() -> bool:
-    """任务计划里是否已有本程序的开机任务（非 Windows 一律 False）。"""
+    """开机自启的实际状态：Windows 查任务计划，macOS/Linux 查自启
+    文件在不在（设置页以这个为准回填勾选，配置文件只是备份）。"""
+    if IS_MAC:
+        return os.path.isfile(_mac_plist_path())
+    if IS_LINUX:
+        return os.path.isfile(_linux_desktop_path())
     if not IS_WINDOWS:
         return False
     try:
@@ -110,6 +121,10 @@ def set_autostart_enabled(enabled: bool) -> bool:
     创建先走 XML（时限/电池/多实例可控），XML 失败再退回命令行创建
     （/SC ONLOGON /RL HIGHEST），两者都失败才返回 False。
     """
+    if IS_MAC:
+        return _set_mac_autostart(enabled)
+    if IS_LINUX:
+        return _set_linux_autostart(enabled)
     if not IS_WINDOWS:
         return False
     if enabled:
@@ -160,3 +175,118 @@ def _exe_command_with_args() -> str:
     cmd = f'"{_exe_command()}"'
     args = _exe_arguments()
     return f"{cmd} {args}" if args else cmd
+
+
+# ---- macOS：LaunchAgent（用户级，登录时启动，不提权） ----
+MAC_LAUNCH_LABEL = "top.izuna.manggoproclient"
+
+
+def _program_arguments():
+    """启动参数列表（plist 的 ProgramArguments / desktop 的 Exec 共用）：
+    打包版只有 exe 本身；源码运行是 python + main.py 路径。"""
+    args = [_exe_command()]
+    extra = _exe_arguments()
+    if extra:
+        args.append(extra.strip('"'))
+    return args
+
+
+def _mac_plist_path() -> str:
+    return os.path.join(
+        os.path.expanduser("~"), "Library", "LaunchAgents",
+        f"{MAC_LAUNCH_LABEL}.plist",
+    )
+
+
+def _mac_plist_text() -> str:
+    items = "\n".join(
+        f"        <string>{_xml_escape(a)}</string>" for a in _program_arguments()
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{MAC_LAUNCH_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+{items}
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+"""
+
+
+def _run_quiet(cmd) -> None:
+    """launchctl 装载/卸载：尽力而为，失败不算数（plist 文件在不在
+    才是状态本身，launchctl 只是让本次登录立即生效）。"""
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=15)
+    except Exception as e:
+        _log_debug("AUTOSTART", f"{cmd[0]} failed quietly: {e}")
+
+
+def _set_mac_autostart(enabled: bool) -> bool:
+    path = _mac_plist_path()
+    try:
+        if enabled:
+            # 在磁盘映像（/Volumes）里运行时拒绝：映像随时会卸载，
+            # 自启会指向一个不存在的路径（与 Windows 便携版守卫同理，
+            # 但这里是路径有效性问题，不是提权问题）。
+            if os.path.abspath(sys.executable).startswith("/Volumes/"):
+                _log_error("AUTOSTART", "running from a disk image, refusing autostart")
+                return False
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_mac_plist_text())
+            _run_quiet(["launchctl", "load", "-w", path])
+        else:
+            _run_quiet(["launchctl", "unload", path])
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        return os.path.isfile(path) == enabled
+    except Exception as e:
+        _log_error("AUTOSTART", f"set mac autostart failed: {e}")
+        return False
+
+
+# ---- Linux：XDG 自启目录（用户级） ----
+def _linux_desktop_path() -> str:
+    return os.path.join(
+        os.path.expanduser("~"), ".config", "autostart",
+        "manggo-pro-client.desktop",
+    )
+
+
+def _linux_desktop_text() -> str:
+    exec_line = shlex.join(_program_arguments())
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Manggo Pro Client\n"
+        f"Exec={exec_line}\n"
+        "X-GNOME-Autostart-enabled=true\n"
+        "NoDisplay=false\n"
+    )
+
+
+def _set_linux_autostart(enabled: bool) -> bool:
+    path = _linux_desktop_path()
+    try:
+        if enabled:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(_linux_desktop_text())
+        else:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        return os.path.isfile(path) == enabled
+    except Exception as e:
+        _log_error("AUTOSTART", f"set linux autostart failed: {e}")
+        return False

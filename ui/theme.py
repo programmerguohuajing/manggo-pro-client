@@ -549,6 +549,59 @@ QLineEdit.SearchBox:focus {
     background: #FFFFFF;
 }
 
+/* 滚动条：自绘细条，不用原生样式。原生条在 macOS 上渲染成带上下
+   箭头的硬边框宽条，与白色卡片风格脱节（用户 1.0.35 截图红框反馈）；
+   与悬浮卡片的滚动条同一套语言：无边框、无箭头、滑块常驻、悬停变橙。 */
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: #D8D3CC;
+    min-height: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #EA580C;
+}
+QScrollBar::handle:vertical:pressed {
+    background: #C2410C;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+    height: 0px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: transparent;
+    height: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #D8D3CC;
+    min-width: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #EA580C;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+    width: 0px;
+}
+
 /* 注意：滑块样式只用上面 V2 那组（细线 + #D6D3D1 拇指边框，无彩条）；
    这里曾经有第二组橙色滑块规则，会把 V2 的覆盖掉，已删除，勿重复添加。 */
 """
