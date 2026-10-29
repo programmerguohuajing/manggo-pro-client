@@ -66,3 +66,23 @@ class VerifiedPasteTest(unittest.TestCase):
     def test_too_long_aborts_instead_of_overwriting(self):
         self.assertIn("text too long", REPLACER)
         self.assertIn("use_all", REPLACER)
+
+
+class AbortAndProofHardeningTest(unittest.TestCase):
+    """1.0.36 守卫：放弃粘贴必须先收起选区（否则用户的下一次敲键
+    会顶掉被选中的原文）；证明用核心文本比对（两端空白表示因
+    应用而异）；全文抓取短于行抓取时不可信。"""
+
+    def test_abort_collapses_selection_first(self):
+        start = REPLACER.index("def _abort_paste")
+        end = REPLACER.index("def _paste_all_verified")
+        body = REPLACER[start:end]
+        self.assertIn("post_right()", body)
+        self.assertLess(body.index("post_right()"), body.index("notify_callback"))
+
+    def test_proof_uses_core_text_and_logs_last_seen(self):
+        self.assertIn("last.strip() == core", REPLACER)
+        self.assertIn("clipboard last seen", REPLACER)
+
+    def test_use_all_length_guard(self):
+        self.assertIn("len(captured_all) >= len(captured)", REPLACER)

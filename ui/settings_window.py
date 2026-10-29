@@ -61,7 +61,12 @@ class _UpdateWorker(QThread):
                 return
             asset = self.asset or {}
             name = asset.get("name", "ManggoProClient-update")
-            if get_channel() == "安装版" and name.endswith(".exe"):
+            if self.mode == "download_mac":
+                # macOS 自替换：zip 同样落随机私有目录（防占位替换），
+                # 解压暂存与交换脚本也都放在这个目录里，退出后由脚本接管。
+                dest_dir = tempfile.mkdtemp(prefix="ManggoProClient-Update-")
+                dest = os.path.join(dest_dir, name)
+            elif get_channel() == "安装版" and name.endswith(".exe"):
                 # 安装器会被以管理员权限运行，绝不能用固定文件名落到
                 # 公共临时目录（可被同用户其他程序预先占位替换）；
                 # mkdtemp 生成随机私有目录，文件名仍用安装包原名，
@@ -74,6 +79,16 @@ class _UpdateWorker(QThread):
                 asset.get("url", ""), dest, self.tag or "",
                 progress_cb=self.progress.emit,
             )
+            if self.mode == "download_mac":
+                bundle = updater.mac_self_update_bundle()
+                staged = updater.stage_mac_update(dest, os.path.dirname(dest))
+                script = updater.write_mac_swap_script(
+                    os.getpid(), staged, bundle, os.path.dirname(dest)
+                )
+                self.done.emit(
+                    {"ok": True, "path": dest, "script": script, "bundle": bundle}
+                )
+                return
             self.done.emit({"ok": True, "path": dest})
         except Exception as e:
             self.done.emit({"ok": False, "error": str(e)})
@@ -1238,7 +1253,7 @@ class SettingsWindow(QWidget):
     def _start_update_worker(self, mode, asset=None, tag=None):
         self._update_worker = _UpdateWorker(mode, asset=asset, tag=tag, parent=self)
         self._update_worker.done.connect(self._on_update_done)
-        if mode == "download":
+        if mode in ("download", "download_mac"):
             self._update_worker.progress.connect(self._on_download_progress)
         self._update_worker.start()
 
@@ -1252,13 +1267,16 @@ class SettingsWindow(QWidget):
 
     def _on_update_done(self, payload):
         worker = self._update_worker
-        is_download = worker is not None and worker.mode == "download"
+        is_download = worker is not None and worker.mode in ("download", "download_mac")
         self.btn_check_update.setEnabled(True)
         if not payload.get("ok"):
             self.lbl_update_status.setText(f"更新失败：{payload.get('error', '未知错误')}")
             return
         if not is_download:
             self._handle_release(payload["release"])
+            return
+        if payload.get("script"):
+            self._handle_mac_self_update(payload)
             return
         self._handle_downloaded(payload["path"])
 
@@ -1275,6 +1293,14 @@ class SettingsWindow(QWidget):
                 f"发现新版本 {remote}，但没有当前平台的安装包。"
             )
             return
+        # macOS 且正运行在可自替换的 .app 里：改下 zip 并走自替换，
+        # 免去“应用运行中访达不让覆盖、还要手动拖放”的老流程。
+        mac_mode = False
+        if sys.platform == "darwin" and updater.mac_self_update_bundle() is not None:
+            zip_asset = updater.select_mac_zip_asset(release)
+            if zip_asset is not None:
+                asset = zip_asset
+                mac_mode = True
         self._set_update_dot(True)
         notes = (release.get("body") or "").strip()
         # 重设计弹窗（ui/update_dialog.py，方案 A）：日志区可滚动，不再半截截断；
@@ -1285,7 +1311,10 @@ class SettingsWindow(QWidget):
             return
         self.btn_check_update.setEnabled(False)
         self.lbl_update_status.setText(f"正在下载 {asset['name']}…")
-        self._start_update_worker("download", asset=asset, tag=release.get("tag", ""))
+        self._start_update_worker(
+            "download_mac" if mac_mode else "download",
+            asset=asset, tag=release.get("tag", ""),
+        )
 
     def _handle_downloaded(self, path):
         import sys
@@ -1332,6 +1361,23 @@ class SettingsWindow(QWidget):
             "也可以手动执行：sudo dpkg -i " + path,
         )
         self.lbl_update_status.setText(f"已下载到：{path}")
+
+    def _handle_mac_self_update(self, payload):
+        reply = QMessageBox.question(
+            self,
+            "下载完成",
+            "新版已下载并校验通过。现在退出程序、完成覆盖更新并自动重启？\n"
+            "（历史记录和配置不受影响；旧版本会保留一份 .bak 备份，"
+            "更新失败会自动恢复旧版。）",
+        )
+        if reply != QMessageBox.Yes:
+            self.lbl_update_status.setText(f"新版已下载到：{payload['path']}（未安装）")
+            return
+        self.lbl_update_status.setText("正在退出并完成更新…")
+        subprocess.Popen(["/bin/bash", payload["script"]], start_new_session=True)
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     # ---------------- 逻辑与事件绑定 ----------------
     def _on_engine_mode_changed(self, idx: int):

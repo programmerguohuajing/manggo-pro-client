@@ -123,5 +123,8 @@ if sys.platform == "darwin":
             "CFBundleName": "ManggoProClient",
             "CFBundleDisplayName": "Manggo Pro Client",
             "NSHighResolutionCapable": True,
+            # 托盘工具：不占程序坞（Dock）图标、不出应用菜单，
+            # 只在菜单栏托盘里驻留（用户 1.0.35 实测反馈）。
+            "LSUIElement": True,
         },
     )

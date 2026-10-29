@@ -17,9 +17,12 @@ Qt 就能单测；界面侧的线程与弹窗在 ui/settings_window.py 里。
 CNB 镜像目前不存在（cnb.cool 上查不到同名仓库），建好镜像后
 再接 CNB 源；ghfast.top 只代理下载、不代理 API，所以只进下载候选。
 
-v1 不做静默自动安装、不做增量更新：下载完成后按平台引导用户
-覆盖安装（Windows 安装版直接启动安装器；其余平台打开下载的
-安装包/磁盘映像，由用户完成最后一步）。
+不做增量更新。下载完成后按平台处理：Windows 安装版启动安装器；
+Linux 打开安装包由用户完成最后一步；macOS 若正运行在可写的 .app
+包内（非磁盘映像里），走自替换：下载 zip 包（带 SHA256 校验）→
+ditto 解压暂存 → 用户在弹窗点确认后，应用退出，由一个独立的
+交换脚本把新 .app 换上并重新打开（旧版保留为 .bak，失败自动
+恢复）。不满足条件时 macOS 仍回退到打开 DMG 手动拖放。
 
 完整性（2026-10-28 review 问题3）：
 - 每个 Release 附带 SHA256SUMS（CI 在 publish 时生成，第 9 个附件），
@@ -39,6 +42,8 @@ import json
 import os
 import platform
 import re
+import shlex
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -487,3 +492,101 @@ def download(url, dest_path, progress_cb=None):
     except OSError:
         pass
     raise UpdateError(f"下载失败（已尝试 {len(errors)} 个地址）：{'；'.join(errors)}")
+
+
+def select_mac_zip_asset(release):
+    """macOS 自替换用的 zip 附件（DMG 不能原地解压替换，必须用 zip）。"""
+    wanted = (
+        "ManggoProClient-macOS-AppleSilicon.zip"
+        if _arch_key() == "arm"
+        else "ManggoProClient-macOS-Intel.zip"
+    )
+    for asset in release.get("assets", []):
+        if asset.get("name") == wanted:
+            return asset
+    return None
+
+
+def app_bundle_from_executable(executable):
+    """.../X.app/Contents/MacOS/<exe> → .../X.app；不匹配返回 None。"""
+    path = os.path.abspath(executable or "")
+    parts = path.split(os.sep)
+    if (
+        len(parts) >= 4
+        and parts[-3] == "Contents"
+        and parts[-2] == "MacOS"
+        and parts[-4].endswith(".app")
+    ):
+        return os.sep.join(parts[:-3])
+    return None
+
+
+def mac_self_update_bundle():
+    """当前进程跑在可自替换的 .app 里时返回其路径，否则 None。
+
+    在磁盘映像（/Volumes/...）里运行时不自替换：映像只读，且那是
+    便携试运行场景，继续走打开 DMG 的老流程。/Applications 是否
+    可写不在这里预判——交换脚本换不动时会自动恢复并重开旧版。
+    """
+    if sys.platform != "darwin":
+        return None
+    bundle = app_bundle_from_executable(sys.executable)
+    if bundle is None or bundle.startswith("/Volumes/"):
+        return None
+    return bundle
+
+
+def stage_mac_update(zip_path, work_dir):
+    """用 ditto 解压更新 zip，返回暂存的 .app 路径。
+
+    必须用 ditto 而不是 zipfile：.app 里有符号链接和可执行位，
+    zipfile 解压不保这两样，解出来的应用跑不起来。
+    """
+    stage_dir = os.path.join(work_dir, "stage")
+    os.makedirs(stage_dir, exist_ok=True)
+    result = subprocess.run(
+        ["/usr/bin/ditto", "-x", "-k", zip_path, stage_dir],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise UpdateError(f"解压更新包失败：{(result.stderr or '').strip()[:200]}")
+    app = os.path.join(stage_dir, "ManggoProClient.app")
+    if not os.path.isdir(app):
+        raise UpdateError("更新包里没有 ManggoProClient.app，已放弃自更新")
+    return app
+
+
+def build_mac_swap_script(pid, src_app, dst_app, log_path):
+    """交换脚本正文（纯函数，便于单测）。
+
+    等应用退出（最多 30 秒）→ 旧版改名为 .bak → ditto 新版到位 →
+    去隔离属性 → 重新打开。备份或覆盖任一步失败：恢复旧版并打开，
+    绝不把用户留在没有可用应用的状态。
+    """
+    q = shlex.quote
+    return (
+        "#!/bin/bash\n"
+        f"exec >>{q(log_path)} 2>&1\n"
+        'echo "mac self-update swap: $(date)"\n'
+        f"PID={int(pid)}\n"
+        f"SRC={q(src_app)}\n"
+        f"DST={q(dst_app)}\n"
+        'for i in $(seq 1 100); do kill -0 "$PID" 2>/dev/null || break; sleep 0.3; done\n'
+        'if kill -0 "$PID" 2>/dev/null; then echo "app did not exit in 30s, abort"; exit 1; fi\n'
+        'rm -rf "$DST.bak"\n'
+        'if ! mv "$DST" "$DST.bak"; then echo "backup failed, reopening current app"; open "$DST"; exit 1; fi\n'
+        'if ! /usr/bin/ditto "$SRC" "$DST"; then echo "ditto failed, restoring backup"; rm -rf "$DST"; mv "$DST.bak" "$DST"; open "$DST"; exit 1; fi\n'
+        'xattr -dr com.apple.quarantine "$DST" 2>/dev/null\n'
+        'echo "swap done, relaunching"\n'
+        'open "$DST"\n'
+    )
+
+
+def write_mac_swap_script(pid, src_app, dst_app, work_dir):
+    """把交换脚本写到 work_dir 并加可执行位，返回脚本路径。"""
+    script_path = os.path.join(work_dir, "swap.sh")
+    log_path = os.path.join(work_dir, "swap.log")
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(build_mac_swap_script(pid, src_app, dst_app, log_path))
+    os.chmod(script_path, 0o755)
+    return script_path

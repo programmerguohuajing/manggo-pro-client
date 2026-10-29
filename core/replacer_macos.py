@@ -122,7 +122,10 @@ class MacReplacer:
             last_flow_clipboard = captured_all
             _log_info("REPLACER", f"mac strategy 2 (all) captured {len(captured_all)} chars: {captured_all[:30]!r}")
             use_all = False
-            if captured_all and self.contains_chinese(captured_all):
+            # 全文抓取必须至少覆盖行抓取的结果：个别应用（Typora
+            # 实测）的 Cmd+A 复制会给出 1 个字符的残缺结果，短于行
+            # 结果时不可信，宁可走行策略。
+            if captured_all and len(captured_all) >= len(captured) and self.contains_chinese(captured_all):
                 if len(captured_all) < 2000:
                     captured = captured_all
                     use_all = True
@@ -152,12 +155,12 @@ class MacReplacer:
 
             if use_all:
                 pasted = self._paste_all_verified(
-                    captured_all, translated_en, clean_text,
+                    translated_en, clean_text,
                     have_backup, original_clipboard,
                 )
             else:
                 pasted = self._paste_line_verified(
-                    captured, translated_en,
+                    translated_en, clean_text,
                     have_backup, original_clipboard,
                 )
             if pasted:
@@ -179,14 +182,24 @@ class MacReplacer:
     # 清空重贴（注意回抓已把剪贴板覆盖成抓到的内容，重贴前必须
     # 把译文再写回去）。每一步成败都写日志，不再靠猜。
 
-    def _poll_until(self, want: str, timeout: float = 0.35) -> bool:
-        """轮询剪贴板直到恰好等于 want（证明一次复制真的落地）。"""
+    def _poll_until(self, core: str, timeout: float = 0.35):
+        """轮询剪贴板直到其核心文本等于 core，返回 (是否命中, 最后所见)。
+
+        核心文本 = 去掉两端空白后的内容。不同应用复制同一段选区时，
+        两端空白/换行的表示并不一致（Typora 等 Electron 编辑器尤其
+        明显），逐字节比对会把真选区误判成证明失败；核心一致即证明
+        选区确实覆盖了目标文本。调用前剪贴板刚被写成译文（与原文
+        核心必然不同，流程前段已校验），不存在旧内容冒充命中。
+        """
         start = time.time()
+        last = ""
         while time.time() - start < timeout:
-            if self._paste() == want:
-                return True
+            last = self._paste()
+            if last.strip() == core:
+                return True, last
             time.sleep(0.02)
-        return self._paste() == want
+        last = self._paste()
+        return last.strip() == core, last
 
     def _grab_all(self) -> str:
         self._copy("")
@@ -203,6 +216,12 @@ class MacReplacer:
         return self._wait_clipboard()
 
     def _abort_paste(self, have_backup, original_clipboard, why: str):
+        # 先收起选区再返回：放弃时若把抓取/证明阶段的选区原样留给
+        # 用户，他下一次敲键就会把选中的原文顶掉（1.0.35 Typora
+        # 实测：证明失败放弃后，原文被用户自己的后续输入吃掉、
+        # 文档变空，看起来像应用删了原文）。其他放弃路径都有
+        # post_right，这里此前漏了。
+        post_right()
         _log_error("REPLACER", f"mac paste aborted: {why}")
         if self.notify_callback:
             self.notify_callback("failed", "粘贴前无法确认选区，已放弃替换（文档未改动）")
@@ -210,20 +229,21 @@ class MacReplacer:
             self._copy(original_clipboard)
         return False
 
-    def _paste_all_verified(self, captured_all, translated, clean_text,
+    def _paste_all_verified(self, translated, clean_text,
                             have_backup, original_clipboard) -> bool:
-        proven = False
+        proven, last = False, ""
         for attempt in (1, 2):
             self._copy(translated)
             time.sleep(0.04)
             post_cmd_key("A")
             time.sleep(0.06)
             post_cmd_key("C")
-            proven = self._poll_until(captured_all)
+            proven, last = self._poll_until(clean_text)
             _log_info("REPLACER", f"mac paste proof attempt {attempt}: {'ok' if proven else 'failed'}")
             if proven:
                 break
         if not proven:
+            _log_info("REPLACER", f"mac paste proof failed: clipboard last seen {last[:40]!r}")
             return self._abort_paste(have_backup, original_clipboard,
                                      "selection not proven after retries")
         self._copy(translated)
@@ -255,20 +275,21 @@ class MacReplacer:
         _log_info("REPLACER", f"mac paste unverified: field={grabbed[:30]!r}")
         return False
 
-    def _paste_line_verified(self, captured_line, translated,
+    def _paste_line_verified(self, translated, clean_text,
                              have_backup, original_clipboard) -> bool:
-        proven = False
+        proven, last = False, ""
         for attempt in (1, 2):
             self._copy(translated)
             time.sleep(0.04)
             post_shift_cmd_left()
             time.sleep(0.06)
             post_cmd_key("C")
-            proven = self._poll_until(captured_line)
+            proven, last = self._poll_until(clean_text)
             _log_info("REPLACER", f"mac paste(line) proof attempt {attempt}: {'ok' if proven else 'failed'}")
             if proven:
                 break
         if not proven:
+            _log_info("REPLACER", f"mac paste(line) proof failed: clipboard last seen {last[:40]!r}")
             return self._abort_paste(have_backup, original_clipboard,
                                      "line selection not proven after retries")
         self._copy(translated)
