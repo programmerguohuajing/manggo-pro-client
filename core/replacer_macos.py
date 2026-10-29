@@ -58,6 +58,10 @@ class MacReplacer:
     def trigger_triple_space_replace(self):
         if self.is_busy:
             return
+        # 忙标志必须在起线程之前置位：旧实现在 _do_replace_flow 里
+        # 置位有竞态——两次快速触发能各起一条流程，两条流程抢同一
+        # 份剪贴板与选区（1.0.38 日志出现过两条流程交错的记录）。
+        self.is_busy = True
         threading.Thread(target=self._do_replace_flow, daemon=True).start()
 
     # ---- 剪贴板小工具（pyperclip 跨平台，macOS 走 pbcopy/pbpaste） ----
@@ -91,7 +95,6 @@ class MacReplacer:
         return ""
 
     def _do_replace_flow(self):
-        self.is_busy = True
         original_clipboard = ""
         have_backup = False
         last_flow_clipboard = ""
@@ -103,8 +106,17 @@ class MacReplacer:
             # 或写后回读校验不过时，完整回退到下面的剪贴板流程。
             try:
                 from core import ax_macos
-                if ax_macos.try_replace_focused(self.translate_func, self.contains_chinese):
+                ax_result = ax_macos.try_replace_focused(
+                    self.translate_func, self.contains_chinese)
+                if ax_result is True:
                     _log_info("REPLACER", "mac replace done via AX (silent path)")
+                    return
+                if ax_result is None:
+                    # AX 已读到字段并确认没有可译内容：剪贴板流程
+                    # 抓到的必然是同一份文本、同样放弃，直接结束，
+                    # 省掉一轮白闪菜单栏的合成键（1.0.38 真机实测
+                    # 的空转闪烁正是这条）。
+                    _log_info("REPLACER", "mac AX: nothing to translate, clipboard flow skipped")
                     return
                 _log_info("REPLACER", "mac AX path not applicable, clipboard flow")
             except Exception as e:

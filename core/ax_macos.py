@@ -39,6 +39,8 @@ _ATTR_FOCUSED = "AXFocusedUIElement"
 _ATTR_VALUE = "AXValue"
 _ATTR_SELECTED_RANGE = "AXSelectedTextRange"
 _ATTR_SELECTED_TEXT = "AXSelectedText"
+_ATTR_PARENT = "AXParent"
+_ATTR_ROLE = "AXRole"
 
 
 def _load(name):
@@ -69,6 +71,8 @@ def _services():
     lib.AXUIElementSetAttributeValue.argtypes = [
         ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
     ]
+    lib.AXUIElementGetPid.restype = ctypes.c_int
+    lib.AXUIElementGetPid.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
     lib.AXValueCreate.restype = ctypes.c_void_p
     lib.AXValueCreate.argtypes = [ctypes.c_int, ctypes.c_void_p]
     lib.AXValueGetValue.restype = ctypes.c_bool
@@ -176,6 +180,19 @@ class _Ax:
             self.ax.AXValueCreate(_AXVALUE_CF_RANGE, ctypes.byref(_CFRange(loc, length)))
         )
 
+    def get_pid(self, element) -> int:
+        pid = ctypes.c_int(0)
+        try:
+            if self.ax.AXUIElementGetPid(element, ctypes.byref(pid)) == _AX_OK:
+                return int(pid.value)
+        except Exception:
+            pass
+        return 0
+
+    def read_role(self, element) -> Optional[str]:
+        err, ref = self.get_attr(element, _ATTR_ROLE)
+        return self.to_str(ref) if err == _AX_OK else None
+
     def read_value(self, element) -> Optional[str]:
         err, ref = self.get_attr(element, _ATTR_VALUE)
         if err != _AX_OK:
@@ -190,6 +207,37 @@ class _Ax:
             if i < 2:
                 time.sleep(0.03)
         return False
+
+
+def _app_name(pid) -> str:
+    """pid -> 进程名（日志归因用，如 Typora/TextEdit）；失败给 '?'。"""
+    if not pid:
+        return "?"
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            capture_output=True, text=True, timeout=2,
+        )
+        name = (out.stdout or "").strip()
+        return name.rsplit("/", 1)[-1] or "?"
+    except Exception:
+        return "?"
+
+
+def _element_chain(s, el, max_hops=4):
+    """焦点元素及其 AXParent 链（近到远）。Electron/Chromium 应用
+    的焦点元素常是编辑区的子节点，全文与选区挂在上层元素上，
+    只看焦点元素本身会误判“读不到”。"""
+    chain = [el]
+    cur = el
+    for _ in range(max_hops):
+        err, parent = s.get_attr(cur, _ATTR_PARENT)
+        if err != _AX_OK or not parent:
+            break
+        chain.append(parent)
+        cur = parent
+    return chain
 
 
 def plan_replace(value: str, sel_loc: int, sel_len: int,
@@ -225,16 +273,20 @@ def read_focused_selection() -> Optional[str]:
         el = s.focused()
         if el is None:
             return None
-        err, ref = s.get_attr(el, _ATTR_SELECTED_TEXT)
-        text = s.to_str(ref) if err == _AX_OK else None
-        if text:
-            return text
-        # 退而求其次：全文 + 选区范围切片。
-        sel = s.get_range(el)
-        value = s.read_value(el)
-        if sel is not None and value is not None and sel[1] > 0:
-            piece = value[sel[0]:sel[0] + sel[1]]
-            return piece or None
+        # 焦点元素与其父链逐个试：Electron 应用的选区文本常挂在
+        # 上层元素上，只问焦点元素本身会漏。
+        for node in _element_chain(s, el, max_hops=3):
+            err, ref = s.get_attr(node, _ATTR_SELECTED_TEXT)
+            text = s.to_str(ref) if err == _AX_OK else None
+            if text:
+                return text
+            # 退而求其次：全文 + 选区范围切片。
+            sel = s.get_range(node)
+            value = s.read_value(node)
+            if sel is not None and value is not None and sel[1] > 0:
+                piece = value[sel[0]:sel[0] + sel[1]]
+                if piece:
+                    return piece
         return None
     except Exception as e:
         _log_debug("AX", f"read_focused_selection failed: {e}")
@@ -244,50 +296,96 @@ def read_focused_selection() -> Optional[str]:
 
 
 def try_replace_focused(translate_func: Callable[[str], str],
-                        contains_chinese: Callable[[str], bool]) -> bool:
-    """AX 静默替换：成功 True；不适用/失败 False（调用方回退剪贴板流程）。"""
+                        contains_chinese: Callable[[str], bool]):
+    """AX 静默替换，三态返回：
+
+    - True：已替换且回读校验通过；
+    - None：焦点字段可读、但没有可译内容（无中文，或译文为空 /
+      与原文相同）。剪贴板流程抓到的必然是同一份文本、同样会
+      放弃，调用方应直接结束——不要再走一遍只会白闪菜单栏的
+      剪贴板流程（1.0.38 真机：译完后再次触发，先闪一轮 Cmd+A/C
+      才报 aborted，正是这种空转）；
+    - False：读不到值 / 选区，或写入不被目标应用接受，调用方
+      回退剪贴板流程。
+
+    失败与空转的原因一律 INFO 打出（应用名、元素角色、AX 错误
+    码），不再埋进 DEBUG——1.0.38 的日志只看得到“not applicable”，
+    分不清是读不到、没选区还是写不进。
+    """
     try:
         s = _Ax()
     except Exception:
         return False
     try:
-        el = s.focused()
-        if el is None:
-            _log_debug("AX", "no focused element")
+        el0 = s.focused()
+        if el0 is None:
+            _log_info("AX", "ax not applicable: no focused element")
             return False
-        value = s.read_value(el)
-        if value is None:
-            _log_debug("AX", "focused element value unreadable")
+        app = _app_name(s.get_pid(el0))
+        picked = None
+        roles = []
+        for el in _element_chain(s, el0):
+            roles.append(s.read_role(el) or "?")
+            value = s.read_value(el)
+            if value:
+                picked = (el, value)
+                break
+            if value == "" and picked is None:
+                # 先记下空值元素；链上再没有带文本的就用它（空字段
+                # 本来就无可译内容，走 None 空转出口）。
+                picked = (el, "")
+        if picked is None:
+            _log_info("AX", f"ax not applicable: value unreadable (app={app}, roles={roles})")
             return False
+        el, value = picked
         sel = s.get_range(el)
         if sel is None:
-            _log_debug("AX", "selection range unreadable")
-            return False
+            # 全文计划（<2000 字且含中文）根本不需要选区参与——
+            # plan_replace 在该分支只用全文。选区读不到不再一票
+            # 否决短文档；长文档仍回退（行计划离不开真实光标）。
+            if len(value) < 2000 and contains_chinese(value):
+                sel = (len(value), 0)
+            else:
+                _log_info("AX", f"ax not applicable: selection range unreadable "
+                                f"(app={app}, value={len(value)} chars)")
+                return False
         plan = plan_replace(value, sel[0], sel[1], contains_chinese)
         if plan is None:
-            _log_debug("AX", "nothing to translate in focused element")
-            return False
+            _log_info("AX", f"ax idle: field readable, nothing to translate "
+                            f"(app={app}, value={len(value)} chars)")
+            return None
         translated = translate_func(plan["clean"])
         if not translated or translated == plan["clean"]:
-            _log_debug("AX", "translation empty or identical")
-            return False
+            _log_info("AX", "ax idle: translation empty or identical")
+            return None
         start, length = plan["start"], plan["length"]
         expected = value[:start] + translated + value[start + length:]
         # 写入一：把选区设到目标区段，再写 AXSelectedText（等价于对
         # 选区打字，不经剪贴板、不发组合键）。
         ok = False
+        err_sel = None
         range_ref = s.make_range(start, length)
-        if range_ref and s.set_attr(el, _ATTR_SELECTED_RANGE, range_ref) == _AX_OK:
-            text_ref = s.cfstr(translated)
-            if text_ref and s.set_attr(el, _ATTR_SELECTED_TEXT, text_ref) == _AX_OK:
-                ok = s.reread_equals(el, expected)
+        if range_ref:
+            err = s.set_attr(el, _ATTR_SELECTED_RANGE, range_ref)
+            if err == _AX_OK:
+                text_ref = s.cfstr(translated)
+                if text_ref:
+                    err_sel = s.set_attr(el, _ATTR_SELECTED_TEXT, text_ref)
+                    if err_sel == _AX_OK:
+                        ok = s.reread_equals(el, expected)
+            else:
+                err_sel = err
+        err_val = None
         if not ok:
             # 写入二：整值写入（有些应用只认 AXValue 可写）。
             value_ref = s.cfstr(expected)
-            if value_ref and s.set_attr(el, _ATTR_VALUE, value_ref) == _AX_OK:
-                ok = s.reread_equals(el, expected)
+            if value_ref:
+                err_val = s.set_attr(el, _ATTR_VALUE, value_ref)
+                if err_val == _AX_OK:
+                    ok = s.reread_equals(el, expected)
         if not ok:
-            _log_debug("AX", "write did not verify against reread")
+            _log_info("AX", f"ax write failed: app={app} roles={roles} "
+                            f"seltext_err={err_sel} value_err={err_val}")
             return False
         # 光标放到译文末尾（尽力而为，失败不影响替换结果）。
         caret_ref = s.make_range(start + len(translated), 0)
@@ -296,7 +394,7 @@ def try_replace_focused(translate_func: Callable[[str], str],
         _log_info("AX", f"ax replaced {length} chars with {len(translated)} chars (silent)")
         return True
     except Exception as e:
-        _log_debug("AX", f"try_replace_focused failed: {e}")
+        _log_info("AX", f"ax attempt raised: {e}")
         return False
     finally:
         s.close()
