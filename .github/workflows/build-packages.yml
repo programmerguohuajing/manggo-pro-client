@@ -75,12 +75,14 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
-      # macOS 专属：PySide6 6.12 的 Qt 要求 macOS 14+ 的 libc++
-      #（__libcpp_verbose_abort），老 Mac（<=13，如 2015 MBP 的 12.7.6）
-      # 启动即 ImportError。6.11.3 经全 .so 扫描不含该符号，且满足
-      # requirements.txt（>=6.6），故 macOS 单独钉 6.11.3；Windows/Linux 不动。
-      - name: Pin PySide6 6.11.3 for macOS (pre-14 libc++ compat)
-        run: pip install "PySide6-Essentials==6.11.3"
+      # macOS 专属：新版 Qt 在老 Mac 上起不来（两道坎：6.12 缺
+      # __libcpp_verbose_abort；6.11.3 的 Qt 运行时要求 macOS 13+，
+      # 12.7.6 实测被拒）。轮子 tag 即最低系统：6.9.3=macosx_12_0
+      #（支持 12 的最新版，全 .so 无坏符号），6.10.3 起=macosx_13_0。
+      # 6.9.3 满足 requirements.txt（>=6.6），故 macOS 单独钉 6.9.3；
+      # Windows/Linux 不动。
+      - name: Pin PySide6 6.9.3 for macOS (macOS 12 compat)
+        run: pip install "PySide6-Essentials==6.9.3"
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e
@@ -135,12 +137,14 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
-      # macOS 专属：PySide6 6.12 的 Qt 要求 macOS 14+ 的 libc++
-      #（__libcpp_verbose_abort），老 Mac（<=13，如 2015 MBP 的 12.7.6）
-      # 启动即 ImportError。6.11.3 经全 .so 扫描不含该符号，且满足
-      # requirements.txt（>=6.6），故 macOS 单独钉 6.11.3；Windows/Linux 不动。
-      - name: Pin PySide6 6.11.3 for macOS (pre-14 libc++ compat)
-        run: pip install "PySide6-Essentials==6.11.3"
+      # macOS 专属：新版 Qt 在老 Mac 上起不来（两道坎：6.12 缺
+      # __libcpp_verbose_abort；6.11.3 的 Qt 运行时要求 macOS 13+，
+      # 12.7.6 实测被拒）。轮子 tag 即最低系统：6.9.3=macosx_12_0
+      #（支持 12 的最新版，全 .so 无坏符号），6.10.3 起=macosx_13_0。
+      # 6.9.3 满足 requirements.txt（>=6.6），故 macOS 单独钉 6.9.3；
+      # Windows/Linux 不动。
+      - name: Pin PySide6 6.9.3 for macOS (macOS 12 compat)
+        run: pip install "PySide6-Essentials==6.9.3"
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e
