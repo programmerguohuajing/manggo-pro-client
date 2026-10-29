@@ -35,3 +35,19 @@ class GrabOrderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReselectBeforePasteTest(unittest.TestCase):
+    """守卫（对应已发布的 1.0.34 修复 + 行策略补丁）：粘贴前必须按
+    获胜策略重选（全文 Cmd+A / 光标行 Shift+Cmd+Left），否则选区在
+    翻译往返期间塌缩，Cmd+V 退化为插入（实测 “Test 测试  ”）；
+    且 ≥2000 字时中止而不是拿一行译文覆盖全文。"""
+
+    def test_reselect_for_both_sources(self):
+        self.assertIn("reselect=", REPLACER)
+        self.assertGreaterEqual(REPLACER.count('post_cmd_key("A")'), 2)
+        self.assertGreaterEqual(REPLACER.count("post_shift_cmd_left()"), 2)
+
+    def test_too_long_aborts_instead_of_overwriting(self):
+        self.assertIn("text too long", REPLACER)
+        self.assertIn("use_all", REPLACER)

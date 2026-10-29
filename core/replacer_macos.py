@@ -157,10 +157,17 @@ class MacReplacer:
             if use_all:
                 post_cmd_key("A")
                 time.sleep(0.08)
+            else:
+                # 行策略获胜时同理要重选行：当前活选区仍是策略二
+                # Cmd+A 的全文（策略二抓取失败才轮到行策略），不重选
+                # 就粘贴会把全文替换成一行译文——与 ≥2000 字是同类
+                # 风险，只是触发条件是策略二那次复制落空。
+                post_shift_cmd_left()
+                time.sleep(0.08)
             pb_now = self._paste()
             _log_info(
                 "REPLACER",
-                f"mac paste: reselect_all={use_all}, clipboard_ok={pb_now == translated_en}",
+                f"mac paste: reselect={'all' if use_all else 'line'}, clipboard_ok={pb_now == translated_en}",
             )
             post_cmd_key("V")
             _log_info("REPLACER", f"mac pasted {len(translated_en)} chars: {translated_en[:30]!r}")
