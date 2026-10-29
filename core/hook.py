@@ -40,7 +40,14 @@ if IS_WINDOWS:
     user32.CallNextHookEx.argtypes = [
         ctypes.c_void_p, ctypes.c_int, wintypes.WPARAM, ctypes.c_void_p,
     ]
-    user32.CallNextHookEx.restype = ctypes.c_void_p
+    # 1.0.19 真因修正：这里绝不能是 c_void_p。指针 restype 会把 C 返回
+    # 的 NULL（即下家返回 0 放行）转成 Python None；回调再把 None 原样
+    # 返回给 HOOKPROC（c_long）时，ctypes 转换失败（NoneType cannot be
+    # interpreted as an integer），调用方读到未初始化的垃圾非 0，Windows
+    # 便把当次按键吞掉 —— 1.0.15 起全系统无法输入就是这么来的，1.0.18
+    # 的日志（ret=None）+ 沙箱复现已证实。c_ssize_t 是 LONG_PTR，
+    # 即 LRESULT 在 64 位下的整数形态：0  stays int 0，非 0 stays int。
+    user32.CallNextHookEx.restype = ctypes.c_ssize_t
     user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
     user32.UnhookWindowsHookEx.restype = wintypes.BOOL
     user32.GetMessageW.argtypes = [
@@ -160,7 +167,10 @@ class GlobalKeyboardHook:
         # 的垃圾值（实测非 0），Windows 会把当次按键吞掉；1.0.15 的
         # 全系统无法输入就是一次回调异常造成的。异常时记日志并放行。
         try:
-            return self._hook_callback_inner(nCode, wParam, lParam)
+            ret = self._hook_callback_inner(nCode, wParam, lParam)
+            # 1.0.19 纵深防御：None 不是合法的放行值（见上）。哪怕某条
+            # 路径将来又返回 None，这里也把它钉成 0，绝不交给 ctypes。
+            return 0 if ret is None else ret
         except Exception:
             try:
                 _log_error("HOOK", "hook callback failed, passing key through")
@@ -260,7 +270,7 @@ class GlobalKeyboardHook:
         # 1.0.18 诊断：只有返回值非 0（即这个键会被挡）才记，且只记这一个键。
         # 若正常键这里出现非 0，说明是链上下一个钩子让它吞的；若一直是 0
         # 但键还是死，说明问题不在返回值（挂起/没跑到回调之类）。
-        if nCode >= 0 and ret != 0:
+        if nCode >= 0 and ret is not None and ret != 0:
             _log_error("HOOK", f"DIAG CallNextHookEx nonzero ret={ret} vk={vk_code:#x} wParam={wParam:#x}")
         return ret
 
@@ -332,7 +342,11 @@ def hook_self_check(hook) -> tuple:
     LPARAM，POINTER 转不过去抛 ArgumentError），回调一抛异常就返回
     垃圾值吞键，全系统打不出字。所以这里在装钩子之前验证两点：
     1) Windows 下 CallNextHookEx 的 lParam 声明必须是 c_void_p；
-    2) 回调 wrapper 必须兜底：内层抛任何异常时外层返回 0（放行）。
+    2) Windows 下 CallNextHookEx 的 restype 绝不能是 c_void_p（1.0.19
+       真因：指针 restype 把 0 转成 None，回调返回 None 时 ctypes
+       转换失败出垃圾值吞键）；
+    3) 回调 wrapper 必须兜底：内层抛任何异常时外层返回 0（放行），
+       且绝不能返回 None。
     第 2 点用探针验证：临时把内层换成必抛的函数，调外层必须得 0，
     验完原样恢复，不碰真实 user32、不注任何按键，任何平台都可跑。
     返回 (ok, 明细字符串)。
@@ -346,6 +360,13 @@ def hook_self_check(hook) -> tuple:
             argtypes = None
         if argtypes is not None and (len(argtypes) < 4 or argtypes[3] is not ctypes.c_void_p):
             problems.append("CallNextHookEx lParam 声明不是 c_void_p（1.0.15 同款错误）")
+        try:
+            restype = user32.CallNextHookEx.restype
+        except Exception as e:
+            problems.append(f"CallNextHookEx restype 不可读：{e}")
+            restype = None
+        if restype is not None and restype is ctypes.c_void_p:
+            problems.append("CallNextHookEx restype 是 c_void_p（1.0.19 真因：0 会被转成 None 导致吞键）")
     original_inner = hook._hook_callback_inner
 
     def _boom(nCode, wParam, lParam):
@@ -358,10 +379,10 @@ def hook_self_check(hook) -> tuple:
         except Exception as e:
             problems.append(f"回调 wrapper 未兜底异常：{e}")
             ret = None
-        if ret is not None and ret != 0:
-            problems.append(f"回调 wrapper 在内层异常时返回 {ret}（应为 0 放行）")
+        if ret is None or ret != 0:
+            problems.append(f"回调 wrapper 在内层异常时返回 {ret!r}（应为 int 0 放行）")
     finally:
         hook._hook_callback_inner = original_inner
     if problems:
         return False, "；".join(problems)
-    return True, "CallNextHookEx lParam=c_void_p；回调 wrapper 异常时返回 0"
+    return True, "CallNextHookEx lParam=c_void_p；restype 非指针；回调 wrapper 异常时返回 int 0"

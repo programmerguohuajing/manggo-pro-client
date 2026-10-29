@@ -75,6 +75,28 @@ class CallNextArgtypesTest(unittest.TestCase):
         self.assertIn("c_void_p", block)
 
 
+class CallNextRestypeTest(unittest.TestCase):
+    def test_callnext_restype_is_ssize_t_not_void_p(self):
+        """core/hook.py 里 CallNextHookEx 的 restype 必须是 c_ssize_t。
+
+        1.0.19 真因：restype=c_void_p 时，C 返回 0（放行）会被转成
+        Python None；回调把 None 返回给 c_long 的 HOOKPROC 时 ctypes
+        转换失败，调用方读到垃圾非 0，Windows 吞键。
+        """
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "core",
+            "hook.py",
+        )
+        src = open(path, encoding="utf-8").read()
+        m = re.search(
+            r"CallNextHookEx\.restype\s*=\s*(\S+)",
+            src,
+        )
+        self.assertIsNotNone(m, "找不到 CallNextHookEx.restype 声明")
+        self.assertEqual(m.group(1), "ctypes.c_ssize_t")
+
+
 class CallbackGuardTest(unittest.TestCase):
     def test_callback_returns_zero_on_inner_error(self):
         """内层回调抛任何异常，外层 wrapper 必须返回 0（放行），绝不吞键。"""

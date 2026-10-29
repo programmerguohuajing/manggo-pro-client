@@ -120,6 +120,20 @@ class CallbackPassThroughTest(unittest.TestCase):
         self.assertEqual(_press(self.hook, VK_SPACE, WM_KEYDOWN, 0), 0)
 
 
+    def test_none_next_return_becomes_zero(self):
+        """1.0.19 回归：CallNextHookEx 返回 None（旧 restype=c_void_p 时
+        0 被转成的样子）时，回调必须返回 int 0，绝不能把 None 交给
+        ctypes —— 否则 ctypes 转换失败，调用方读到垃圾非 0，Windows
+        吞键（1.0.15–1.0.18 全系统无法输入的真因）。"""
+        class _FakeNone(FakeUser32):
+            def CallNextHookEx(self, hook_id, nCode, wParam, lParam):
+                return None
+
+        hook_mod.user32 = _FakeNone()
+        ret = _press(self.hook, 0x41, WM_KEYDOWN, 0)
+        self.assertIsInstance(ret, int)
+        self.assertEqual(ret, 0)
+
     def test_diag_nonzero_next_return_logged(self):
         """1.0.18：链上下一个钩子返回非 0 时，回调必须把这个值记进日志
         （1.0.17 的日志看不见返回值，无法区分“回调吞键”与“下家吞键”）。"""
@@ -174,6 +188,37 @@ class HookSelfCheckTest(unittest.TestCase):
         ok, detail = hook_self_check(self.hook)
         self.assertFalse(ok)
         self.assertIn("wrapper", detail)
+
+    def test_self_check_blocks_void_p_restype(self):
+        """1.0.19：自检必须拦下 restype=c_void_p（0 会被转成 None 的真因）。"""
+        self._run_self_check_with_restype(ctypes.c_void_p, expect_ok=False)
+
+    def test_self_check_passes_ssize_t_restype(self):
+        """1.0.19：restype=c_ssize_t（整数形态的 LRESULT）必须通过自检。"""
+        self._run_self_check_with_restype(ctypes.c_ssize_t, expect_ok=True)
+
+    def _run_self_check_with_restype(self, restype, expect_ok):
+        class _CNH:
+            argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+
+        # 注意：不能在 class 体里写 restype = restype（类命名空间会
+        # 遮住外层参数，导致 NameError），改在类体外赋值。
+        _CNH.restype = restype
+
+        class _U32:
+            CallNextHookEx = _CNH
+
+        old_windows, old_user32 = hook_mod.IS_WINDOWS, hook_mod.user32
+        hook_mod.IS_WINDOWS, hook_mod.user32 = True, _U32()
+        try:
+            ok, detail = hook_self_check(self.hook)
+        finally:
+            hook_mod.IS_WINDOWS, hook_mod.user32 = old_windows, old_user32
+        if expect_ok:
+            self.assertTrue(ok, detail)
+        else:
+            self.assertFalse(ok, detail)
+            self.assertIn("restype", detail)
 
     def test_hook_still_works_after_self_check(self):
         """自检的探针必须原样恢复内层，验完普通键照样放行。"""
