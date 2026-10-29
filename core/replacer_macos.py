@@ -70,11 +70,15 @@ class MacReplacer:
         except Exception as e:
             _log_debug("CLIPBOARD", f"mac copy failed: {e}")
 
-    def _copy_and_wait(self, timeout: float = 0.35) -> str:
-        """Cmd+C 后等剪贴板出现新内容（先清空再等非空，避免把旧剪贴板
-        当成选中文字——Windows 序号法的 macOS 近似版）。"""
-        self._copy("")
-        time.sleep(0.02)
+    def _wait_clipboard(self, timeout: float = 0.6) -> str:
+        """等剪贴板出现内容（调用方负责：先清空 → 选区 → 发 Cmd+C）。
+
+        顺序是关键：清空必须在发复制键之前。旧实现 _copy_and_wait
+        把清空放在发键之后——目标应用处理 Cmd+C 稍慢时，它写入的
+        内容会被随后的清空盖掉，永远抓到空（1.0.30 真机日志实测：
+        两条策略都 captured 0 chars）。Windows 版用剪贴板序号检测
+        变化、从不清空，所以没这个竞态；这是 macOS 近似版引入的。
+        """
         start = time.time()
         while time.time() - start < timeout:
             text = self._paste()
@@ -97,20 +101,23 @@ class MacReplacer:
                 _log_debug("CLIPBOARD", f"mac backup failed, restore skipped: {e}")
 
             # 策略一：行内向前选区（Shift+Cmd+Left）+ Cmd+C。
+            # 顺序固定：先清空剪贴板，再选区、复制、等内容。
+            self._copy("")
             post_shift_cmd_left()
             time.sleep(0.05)
             post_cmd_key("C")
-            captured = self._copy_and_wait()
+            captured = self._wait_clipboard()
             last_flow_clipboard = captured
-            _log_info("REPLACER", f"mac strategy 1 (line) captured {len(captured)} chars")
+            _log_info("REPLACER", f"mac strategy 1 (line) captured {len(captured)} chars: {captured[:30]!r}")
 
-            # 策略二：整个输入框（Cmd+A）+ Cmd+C。
+            # 策略二：整个输入框（Cmd+A）+ Cmd+C（同样的抓取顺序）。
+            self._copy("")
             post_cmd_key("A")
             time.sleep(0.05)
             post_cmd_key("C")
-            captured_all = self._copy_and_wait()
+            captured_all = self._wait_clipboard()
             last_flow_clipboard = captured_all
-            _log_info("REPLACER", f"mac strategy 2 (all) captured {len(captured_all)} chars")
+            _log_info("REPLACER", f"mac strategy 2 (all) captured {len(captured_all)} chars: {captured_all[:30]!r}")
             if captured_all and self.contains_chinese(captured_all) and len(captured_all) < 2000:
                 captured = captured_all
 

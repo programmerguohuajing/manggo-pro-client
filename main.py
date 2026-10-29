@@ -54,7 +54,7 @@ from core.autostart import is_autostart_enabled, set_autostart_enabled
 from core.version import get_channel, get_version
 _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook, hook_self_check
-from core.hook_macos import MacKeyboardHook, post_cmd_key, is_accessibility_trusted
+from core.hook_macos import MacKeyboardHook, post_cmd_key, is_accessibility_trusted, wait_until_modifiers_released
 from core.replacer_macos import MacReplacer
 from core.hook_linux import LinuxKeyboardHook, xtest_ctrl_key, open_display
 from core.replacer_linux import LinuxReplacer
@@ -302,6 +302,11 @@ class AppCoordinator(QObject):
             # 看日志无从分辨是授权、投递还是剪贴板坏了（用户实测反馈）。
             trusted = is_accessibility_trusted()
             _log_info("APP", f"[SELECTION] mac capture start, accessibility_trusted={trusted}")
+            # Option+Q 触发时用户多半还按着 Option：等它松开再发
+            # Cmd+C，否则部分应用把合成键当成 Option+Cmd+C（不复制）。
+            waited = wait_until_modifiers_released()
+            if waited and waited > 0.05:
+                _log_info("APP", f"[SELECTION] waited {waited:.2f}s for modifiers to release")
             captured = ""
             for attempt in (1, 2):
                 if attempt == 2:

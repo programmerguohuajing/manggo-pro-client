@@ -390,6 +390,37 @@ def is_accessibility_trusted():
         return None
 
 
+def wait_until_modifiers_released(timeout: float = 1.2) -> float:
+    """等物理 Option/Ctrl 松开；返回实际等待秒数，超时返回 -1.0。
+
+    Option+Q 触发划选时，回调触发后用户往往还按着 Option；立刻
+    合成 Cmd+C，部分应用会把它理解成 Option+Cmd+C（不复制）。
+    先等修饰键松开再投递，与 Windows 版等修饰键抬起的教训同理。
+    签名纪律：CGEventSourceFlagsState 在本函数自己的句柄上声明
+    （无指针参数，但 restype 是 64 位 flags，必须显式声明）。
+    """
+    lib = _load_lib("CoreGraphics")
+    if lib is None:
+        return 0.0
+    try:
+        lib.CGEventSourceFlagsState.argtypes = [ctypes.c_int]
+        lib.CGEventSourceFlagsState.restype = ctypes.c_uint64
+    except Exception:
+        return 0.0
+    mask = kCGEventFlagMaskAlternate | kCGEventFlagMaskControl
+    start = time.time()
+    while True:
+        try:
+            flags = lib.CGEventSourceFlagsState(1)  # kCGEventSourceStateHIDSystemState
+        except Exception:
+            return 0.0
+        if not (flags & mask):
+            return time.time() - start
+        if time.time() - start >= timeout:
+            return -1.0
+        time.sleep(0.02)
+
+
 def post_key(keycode: int, flags: int = 0, delay: float = 0.02):
     """合成一次按键（按下 + 抬起），flags 显式指定，与物理修饰键无关。
 
