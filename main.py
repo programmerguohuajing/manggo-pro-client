@@ -367,7 +367,7 @@ class AppCoordinator(QObject):
     def _on_toggle_hook(self, enabled: bool):
         if not IS_WINDOWS:
             self.tray.set_enabled(False)
-            self.toast.show_message("error", "快捷转译仅支持 Windows")
+            self.toast.show_message("error", "全局热键 Mac/Linux 版开发中，当前版本暂不支持")
             return
         if enabled:
             # 恢复也要先自检：启动时自检没过的钩子，恢复时同样不许装。

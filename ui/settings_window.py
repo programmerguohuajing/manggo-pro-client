@@ -511,6 +511,10 @@ class SettingsWindow(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        if IS_MAC:
+            # macOS：工具窗不需要全屏；全屏后原生标题栏隐藏，用户会觉得
+            # “关不掉”（须悬停顶部或 Ctrl+Cmd+F 退出），故直接去掉全屏按钮。
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowFullscreenButtonHint)
         self.setObjectName("SettingsWindow")
         self.setWindowTitle("Manggo Pro - 偏好设置")
         self.resize(860, 640)
@@ -761,6 +765,12 @@ class SettingsWindow(QWidget):
         self.chk_triple_space = QCheckBox("启用【连续三次空格】输入框就地转译")
         self.chk_triple_space.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         c_layout.addWidget(self.chk_triple_space)
+
+        if not IS_WINDOWS:
+            lbl_platform = QLabel("当前平台暂不支持全局热键与三次空格转译（开发中）；这里的开关是你的偏好，功能上线后即按此生效，托盘因此显示“热键暂不可用”而非“已暂停”。")
+            lbl_platform.setProperty("class", "SectionDesc")
+            lbl_platform.setWordWrap(True)
+            c_layout.addWidget(lbl_platform)
 
         lbl_desc = QLabel("在任意软件（微信、Word、浏览器、终端等）中打完中文后，只需连击 3 次空格，即可自动消除空格并将光标前中文直接替换为英文。")
         lbl_desc.setProperty("class", "SectionDesc")

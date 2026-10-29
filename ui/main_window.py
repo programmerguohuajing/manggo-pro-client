@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QIcon
 import pyperclip
 
+from core.platform import IS_MAC
+
 from ui import theme
 
 from core.tts import tts_player
@@ -21,6 +23,10 @@ class MainWindow(QWidget):
 
     def __init__(self, translator_mgr, hotkeys=None, parent=None):
         super().__init__(parent)
+        if IS_MAC:
+            # macOS：工具窗不需要全屏；全屏后原生标题栏隐藏，用户会觉得
+            # “关不掉”（须悬停顶部或 Ctrl+Cmd+F 退出），故直接去掉全屏按钮。
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowFullscreenButtonHint)
         self.translator_mgr = translator_mgr
         self._translate_workers = []
         self.setWindowTitle("Manggo Pro - 桌面翻译工作台")

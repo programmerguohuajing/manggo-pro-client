@@ -12,11 +12,17 @@ import pyperclip
 
 from core.database import db
 
+from core.platform import IS_MAC
+
 from ui import theme
 
 class HistoryWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        if IS_MAC:
+            # macOS：工具窗不需要全屏；全屏后原生标题栏隐藏，用户会觉得
+            # “关不掉”（须悬停顶部或 Ctrl+Cmd+F 退出），故直接去掉全屏按钮。
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowFullscreenButtonHint)
         self.setWindowTitle("Manggo 历史记录 & 生词本")
         self.resize(720, 480)
         self.setStyleSheet(theme.WINDOW_STYLESHEET)
