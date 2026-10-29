@@ -73,6 +73,7 @@ _NAME_TO_MAC_KEYCODE = {v: k for k, v in _MAC_KEYCODE_TO_NAME.items()}
 # 合成按键用的键码（与上面同一张表，单独列出常用的几个）。
 KEYCODE_LEFT = 123
 KEYCODE_RIGHT = 124
+KEYCODE_DELETE = 51  # kVK_Delete（修复路径清空全文用）
 
 
 def _load_lib(name):
@@ -461,3 +462,9 @@ def post_shift_cmd_left():
 def post_right():
     """合成 Right（收起选区，对应 Windows 放弃路径的 VK_RIGHT）。"""
     post_key(KEYCODE_RIGHT)
+
+
+def post_delete():
+    """合成 Delete（无修饰键）。仅在选区已被回读证明覆盖全文时
+    用于修复清空——无选区时它只删一个字符，所以调用点必须先证明。"""
+    return post_key(KEYCODE_DELETE)

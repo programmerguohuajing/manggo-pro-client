@@ -37,16 +37,31 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ReselectBeforePasteTest(unittest.TestCase):
-    """守卫（对应已发布的 1.0.34 修复 + 行策略补丁）：粘贴前必须按
-    获胜策略重选（全文 Cmd+A / 光标行 Shift+Cmd+Left），否则选区在
-    翻译往返期间塌缩，Cmd+V 退化为插入（实测 “Test 测试  ”）；
-    且 ≥2000 字时中止而不是拿一行译文覆盖全文。"""
+class VerifiedPasteTest(unittest.TestCase):
+    """守卫（1.0.35 可验证粘贴）：粘贴前必须用回读证明选区覆盖了
+    待替换文本（proof），粘贴后必须回抓校验（verified / repair），
+    Delete 只允许出现在修复分支（选区已被回抓证明覆盖全文时）。"""
 
-    def test_reselect_for_both_sources(self):
-        self.assertIn("reselect=", REPLACER)
-        self.assertGreaterEqual(REPLACER.count('post_cmd_key("A")'), 2)
-        self.assertGreaterEqual(REPLACER.count("post_shift_cmd_left()"), 2)
+    def test_proof_verify_repair_flow(self):
+        for marker in (
+            "_paste_all_verified",
+            "_paste_line_verified",
+            "mac paste proof attempt",
+            "selection not proven",
+            "mac paste verified",
+            "mac paste repair",
+        ):
+            self.assertIn(marker, REPLACER)
+
+    def test_delete_only_for_repair(self):
+        self.assertEqual(REPLACER.count("post_delete()"), 1)
+
+    def test_hook_exposes_post_delete(self):
+        import pathlib
+        hook = pathlib.Path(__file__).resolve().parent.parent.joinpath(
+            "core", "hook_macos.py").read_text(encoding="utf-8")
+        self.assertIn("KEYCODE_DELETE = 51", hook)
+        self.assertIn("def post_delete():", hook)
 
     def test_too_long_aborts_instead_of_overwriting(self):
         self.assertIn("text too long", REPLACER)

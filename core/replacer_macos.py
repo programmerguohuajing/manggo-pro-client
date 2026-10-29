@@ -8,7 +8,9 @@
 - 策略二：Cmd+A（全选）+ Cmd+C，拿到全文；含中文且 < 2000 字时
   用全文（多行输入框要全文，不是光标行；单行框里两者相同）；
 - 校验（空 / 无中文 / 翻译为空或相同 → 放弃并按 Right 收起选区）；
-- 译文写剪贴板 + Cmd+V 粘贴替换选区。
+- 粘贴走可验证流程（1.0.35）：重选后先 Cmd+C 回读，剪贴板恰好
+  变回待替换原文才证明选区真的覆盖了它，然后才写译文粘贴；
+  粘后回抓全文对账，原文还在（粘成了插入）就清空重贴。
 
 与 Windows 版有意的两处差异（后续可补，不静默假装有）：
 - 无窗口黑名单（终端/密码框）：Windows 用 GetForegroundWindow 查
@@ -31,6 +33,7 @@ import pyperclip
 
 from core.hook_macos import (
     post_cmd_key,
+    post_delete,
     post_right,
     post_shift_cmd_left,
 )
@@ -147,30 +150,18 @@ class MacReplacer:
                 self._maybe_restore(have_backup, original_clipboard, last_flow_clipboard)
                 return
 
-            self._copy(translated_en)
-            time.sleep(0.05)
-            # 1.0.34：粘贴前重新建立选区。1.0.33 真机：抓取已正常
-            # （captured '测试'、pasted 4 chars），但 TextEdit 里结果是
-            # “Test测试”——译文插在了前面，原文没被替换：翻译请求的这段
-            # 时间里选区已经塌缩，Cmd+V 落成了插入。用全文时再按一次
-            # Cmd+A，保证粘贴替换的就是刚才抓取的那段。
             if use_all:
-                post_cmd_key("A")
-                time.sleep(0.08)
+                pasted = self._paste_all_verified(
+                    captured_all, translated_en, clean_text,
+                    have_backup, original_clipboard,
+                )
             else:
-                # 行策略获胜时同理要重选行：当前活选区仍是策略二
-                # Cmd+A 的全文（策略二抓取失败才轮到行策略），不重选
-                # 就粘贴会把全文替换成一行译文——与 ≥2000 字是同类
-                # 风险，只是触发条件是策略二那次复制落空。
-                post_shift_cmd_left()
-                time.sleep(0.08)
-            pb_now = self._paste()
-            _log_info(
-                "REPLACER",
-                f"mac paste: reselect={'all' if use_all else 'line'}, clipboard_ok={pb_now == translated_en}",
-            )
-            post_cmd_key("V")
-            _log_info("REPLACER", f"mac pasted {len(translated_en)} chars: {translated_en[:30]!r}")
+                pasted = self._paste_line_verified(
+                    captured, translated_en,
+                    have_backup, original_clipboard,
+                )
+            if pasted:
+                _log_info("REPLACER", f"mac pasted {len(translated_en)} chars: {translated_en[:30]!r}")
         except Exception as e:
             _log_error("REPLACER", f"mac replace flow failed: {e}")
             if self.notify_callback:
@@ -178,6 +169,117 @@ class MacReplacer:
             self._maybe_restore(have_backup, original_clipboard, last_flow_clipboard)
         finally:
             self.is_busy = False
+
+    # ---- 可验证粘贴（1.0.35） ----
+    # 1.0.34 真机（多行文档）证明：reselect_all=True、clipboard_ok=True
+    # 时 Cmd+V 仍然落成插入。“发了 Cmd+A”不等于“粘贴那一刻选区
+    # 还覆盖着原文”——选区状态从外部读不到，那就用剪贴板证明它：
+    # 重选后立刻 Cmd+C，剪贴板恰好变回待替换的原文，选区才算被
+    # 证明；粘贴后回抓全文对账，原文还在就趁回抓的全选还活着
+    # 清空重贴（注意回抓已把剪贴板覆盖成抓到的内容，重贴前必须
+    # 把译文再写回去）。每一步成败都写日志，不再靠猜。
+
+    def _poll_until(self, want: str, timeout: float = 0.35) -> bool:
+        """轮询剪贴板直到恰好等于 want（证明一次复制真的落地）。"""
+        start = time.time()
+        while time.time() - start < timeout:
+            if self._paste() == want:
+                return True
+            time.sleep(0.02)
+        return self._paste() == want
+
+    def _grab_all(self) -> str:
+        self._copy("")
+        post_cmd_key("A")
+        time.sleep(0.05)
+        post_cmd_key("C")
+        return self._wait_clipboard()
+
+    def _grab_line(self) -> str:
+        self._copy("")
+        post_shift_cmd_left()
+        time.sleep(0.05)
+        post_cmd_key("C")
+        return self._wait_clipboard()
+
+    def _abort_paste(self, have_backup, original_clipboard, why: str):
+        _log_error("REPLACER", f"mac paste aborted: {why}")
+        if self.notify_callback:
+            self.notify_callback("failed", "粘贴前无法确认选区，已放弃替换（文档未改动）")
+        if have_backup:
+            self._copy(original_clipboard)
+        return False
+
+    def _paste_all_verified(self, captured_all, translated, clean_text,
+                            have_backup, original_clipboard) -> bool:
+        proven = False
+        for attempt in (1, 2):
+            self._copy(translated)
+            time.sleep(0.04)
+            post_cmd_key("A")
+            time.sleep(0.06)
+            post_cmd_key("C")
+            proven = self._poll_until(captured_all)
+            _log_info("REPLACER", f"mac paste proof attempt {attempt}: {'ok' if proven else 'failed'}")
+            if proven:
+                break
+        if not proven:
+            return self._abort_paste(have_backup, original_clipboard,
+                                     "selection not proven after retries")
+        self._copy(translated)
+        time.sleep(0.03)
+        post_cmd_key("V")
+        time.sleep(0.08)
+        grabbed = self._grab_all()
+        if grabbed == translated or grabbed.strip() == translated.strip():
+            post_right()
+            _log_info("REPLACER", "mac paste verified: field holds exactly the translation")
+            return True
+        if clean_text and clean_text in grabbed:
+            # 插入而非替换。_grab_all 刚成功全选并复制——拷贝内容
+            # 本身证明此刻全文选区是活的：清空、把译文写回剪贴板
+            # （回抓已覆盖了它）、重贴，结果确定。
+            _log_info("REPLACER", "mac paste repair: original still present, clearing and re-pasting")
+            post_delete()
+            time.sleep(0.04)
+            self._copy(translated)
+            time.sleep(0.03)
+            post_cmd_key("V")
+            time.sleep(0.08)
+            grabbed2 = self._grab_all()
+            post_right()
+            ok = grabbed2 == translated or grabbed2.strip() == translated.strip()
+            _log_info("REPLACER", f"mac paste repair {'verified' if ok else 'failed'}: field={grabbed2[:30]!r}")
+            return ok
+        post_right()
+        _log_info("REPLACER", f"mac paste unverified: field={grabbed[:30]!r}")
+        return False
+
+    def _paste_line_verified(self, captured_line, translated,
+                             have_backup, original_clipboard) -> bool:
+        proven = False
+        for attempt in (1, 2):
+            self._copy(translated)
+            time.sleep(0.04)
+            post_shift_cmd_left()
+            time.sleep(0.06)
+            post_cmd_key("C")
+            proven = self._poll_until(captured_line)
+            _log_info("REPLACER", f"mac paste(line) proof attempt {attempt}: {'ok' if proven else 'failed'}")
+            if proven:
+                break
+        if not proven:
+            return self._abort_paste(have_backup, original_clipboard,
+                                     "line selection not proven after retries")
+        self._copy(translated)
+        time.sleep(0.03)
+        post_cmd_key("V")
+        time.sleep(0.08)
+        grabbed_line = self._grab_line()
+        post_right()
+        ok = grabbed_line.strip() == translated.strip()
+        _log_info("REPLACER", f"mac paste(line) {'verified' if ok else 'unverified'}: line={grabbed_line[:30]!r}")
+        return ok
 
     def _maybe_restore(self, have_backup, original_clipboard, last_flow_clipboard):
         """放弃路径：用户没动过剪贴板时才把备份写回去。"""
