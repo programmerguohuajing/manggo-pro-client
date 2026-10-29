@@ -128,6 +128,35 @@ jobs:
         run: pyinstaller manggo-pro-client.spec
       - name: Prune dead weight
         run: python packaging/prune.py dist/ManggoProClient.app
+      # 自签签名（用户 2026-10-29 选定）：固定签名身份让 macOS TCC
+      # 授权（辅助功能 / 输入监控 / 屏幕录制）跨版本保留——此前是
+      # 临时签名，每次打包身份都变，用户每次更新都要把三项授权
+      # 删掉重加。证书是自签的（非 Apple 开发者证书），Gatekeeper
+      # 的“已损坏”提示与 xattr 处理不变。私钥只在仓库 Secrets 里
+      # （MACOS_SIGN_P12_*），绝不入库。签名必须在 Prune 之后
+      # （签名后再删文件会破坏封印）、打包之前。见 packaging/SIGNING.md。
+      - name: Sign app (self-signed, stable identity)
+        env:
+          MACOS_SIGN_P12_BASE64: ${{ secrets.MACOS_SIGN_P12_BASE64 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/sign.keychain-db"
+          KC_PW="$(uuidgen)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          echo "$MACOS_SIGN_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security import "$RUNNER_TEMP/sign.p12" -k "$KEYCHAIN" -P "$MACOS_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/sign.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | grep -oE '[0-9A-F]{40}' | head -1)"
+          echo "Signing identity (SHA-1): $IDENTITY"
+          codesign --force --deep --timestamp=none --sign "$IDENTITY" dist/ManggoProClient.app
+          codesign --verify --deep --verbose=2 dist/ManggoProClient.app
+          codesign -dv --verbose=4 dist/ManggoProClient.app
+          security delete-keychain "$KEYCHAIN"
       - name: Pack
         run: |
           cd dist && zip -9 -r -y ../ManggoProClient-macOS-Intel.zip ManggoProClient.app
@@ -136,7 +165,7 @@ jobs:
           name: ManggoProClient-macOS-Intel
           path: ManggoProClient-macOS-Intel.zip
           retention-days: 30
-      # 安装器：DMG（拖到 Applications 即安装；未签名，首次打开需右键）。
+      # 安装器：DMG（拖到 Applications 即安装；自签，下载后首次打开仍需 xattr 去隔离属性）。
       - name: Build installer (DMG)
         run: |
           rm -rf dmg-staging && mkdir dmg-staging
@@ -209,6 +238,35 @@ jobs:
         run: pyinstaller manggo-pro-client.spec
       - name: Prune dead weight
         run: python packaging/prune.py dist/ManggoProClient.app
+      # 自签签名（用户 2026-10-29 选定）：固定签名身份让 macOS TCC
+      # 授权（辅助功能 / 输入监控 / 屏幕录制）跨版本保留——此前是
+      # 临时签名，每次打包身份都变，用户每次更新都要把三项授权
+      # 删掉重加。证书是自签的（非 Apple 开发者证书），Gatekeeper
+      # 的“已损坏”提示与 xattr 处理不变。私钥只在仓库 Secrets 里
+      # （MACOS_SIGN_P12_*），绝不入库。签名必须在 Prune 之后
+      # （签名后再删文件会破坏封印）、打包之前。见 packaging/SIGNING.md。
+      - name: Sign app (self-signed, stable identity)
+        env:
+          MACOS_SIGN_P12_BASE64: ${{ secrets.MACOS_SIGN_P12_BASE64 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/sign.keychain-db"
+          KC_PW="$(uuidgen)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          echo "$MACOS_SIGN_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security import "$RUNNER_TEMP/sign.p12" -k "$KEYCHAIN" -P "$MACOS_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/sign.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -p codesigning "$KEYCHAIN" | grep -oE '[0-9A-F]{40}' | head -1)"
+          echo "Signing identity (SHA-1): $IDENTITY"
+          codesign --force --deep --timestamp=none --sign "$IDENTITY" dist/ManggoProClient.app
+          codesign --verify --deep --verbose=2 dist/ManggoProClient.app
+          codesign -dv --verbose=4 dist/ManggoProClient.app
+          security delete-keychain "$KEYCHAIN"
       - name: Pack
         run: |
           cd dist && zip -9 -r -y ../ManggoProClient-macOS-AppleSilicon.zip ManggoProClient.app
@@ -217,7 +275,7 @@ jobs:
           name: ManggoProClient-macOS-AppleSilicon
           path: ManggoProClient-macOS-AppleSilicon.zip
           retention-days: 30
-      # 安装器：DMG（拖到 Applications 即安装；未签名，首次打开需右键）。
+      # 安装器：DMG（拖到 Applications 即安装；自签，下载后首次打开仍需 xattr 去隔离属性）。
       - name: Build installer (DMG)
         run: |
           rm -rf dmg-staging && mkdir dmg-staging
