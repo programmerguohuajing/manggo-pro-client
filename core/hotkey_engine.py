@@ -18,6 +18,8 @@ Option 键在后端映射成 'Alt'，Cmd 不进热键判定）。
 - ('triple_space', False)：三次空格命中，调用方触发就地转译，
   但空格本身不吞（三个空格要落到输入框里，替换器再处理）。
 - (None, True)：按住主键的自动重复，只吞不重新触发。
+- (None, True)：三次空格刚触发（0.35 秒内）或替换进行中（busy_check）
+  时的后续空格——同一次手势的溢出，吞掉不计数（见空格分支注释）。
 - (None, False)：普通按键，放行；非修饰键还会把空格计数清零。
 抬起事件（handle_key_up）只清按住态，永不触发、永不吞键。
 """
@@ -55,6 +57,11 @@ class HotkeyEngine:
         self._space_down = False
         self.space_count = 0
         self.last_space_time = 0.0
+        # 就地替换忙查询（后端接线：替换器的 is_busy）。None = 不启用。
+        self.busy_check = None
+        # 最近一次三次空格触发时刻：触发后 0.35 秒内的空格视为同一
+        # 次手势的溢出，无条件吞掉（覆盖回调置忙标志前的间隙）。
+        self._triggered_at = 0.0
 
     def _set_table(self, actions):
         self._table = [(frozenset(mods), key, action) for action, mods, key in actions]
@@ -112,6 +119,20 @@ class HotkeyEngine:
 
         # 连续三次空格就地转译（无 Alt / Ctrl 干扰；空格本身不吞）。
         if main_key == "Space" and "Alt" not in mods and "Ctrl" not in mods:
+            # 溢出空格吞掉：触发后的第四下空格是同一次手势的尾巴，
+            # 它落进输入框时，替换流程的全选/行选正活着——一个空格
+            # 敲下去就把选中的原文整段顶掉（用户实测“输四次空格，
+            # 原来输入的内容直接都清空”）。0.35 秒固定保护窗覆盖
+            # 回调线程置忙标志前的间隙，其后由 busy_check 接管
+            # 整个替换期间。
+            if self._triggered_at and now - self._triggered_at <= 0.35:
+                return None, True
+            if self.busy_check is not None:
+                try:
+                    if self.busy_check():
+                        return None, True
+                except Exception:
+                    pass
             if is_repeat or self._space_down:
                 return None, False  # 按住空格的自动重复不计数
             self._space_down = True
@@ -124,6 +145,7 @@ class HotkeyEngine:
             if self.space_count >= 3:
                 self.space_count = 0
                 self.last_space_time = 0.0
+                self._triggered_at = now
                 return "triple_space", False
             return None, False
 

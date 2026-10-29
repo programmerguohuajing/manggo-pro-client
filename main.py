@@ -216,6 +216,10 @@ class AppCoordinator(QObject):
                 max_interval=self.config.get("max_interval_ms", 750) / 1000.0,
                 hotkeys=normalize_hotkeys(self.config.get("hotkeys")),
             )
+        if IS_MAC or IS_LINUX:
+            # 替换进行中让引擎吞掉后续空格：第四下空格会打在替换
+            # 流程的全选选区上，把原文整段顶掉（用户实测）。
+            self.hook.set_replace_busy_check(lambda: self.replacer.is_busy)
         # 1.0.17 自检：装钩子之前先证明钩子不会吞键（1.0.15 的教训）。
         # 自检失败 → 拒绝装钩子（宁可热键不用，也不能让用户打不出字），
         # 原因写进日志并弹提示；通过才 start，并记下安装结果。

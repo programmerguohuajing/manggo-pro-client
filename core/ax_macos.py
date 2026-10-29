@@ -40,6 +40,12 @@ _ATTR_VALUE = "AXValue"
 _ATTR_SELECTED_RANGE = "AXSelectedTextRange"
 _ATTR_SELECTED_TEXT = "AXSelectedText"
 _ATTR_PARENT = "AXParent"
+
+# AX 读写会让个别 Electron 应用崩溃（用户实测：在飞书输入框里
+# 触发就地转译后飞书崩溃）。崩溃报告定性之前，这些应用整体跳过
+# AX（含读选区），一律回退剪贴板流程——慢一点，但不碰它的 AX
+# 实现。进程名取可执行文件基名（飞书国际版叫 Lark）。
+_AX_APP_DENYLIST = {"Feishu", "Lark"}
 _ATTR_ROLE = "AXRole"
 
 
@@ -273,6 +279,9 @@ def read_focused_selection() -> Optional[str]:
         el = s.focused()
         if el is None:
             return None
+        if _app_name(s.get_pid(el)) in _AX_APP_DENYLIST:
+            _log_debug("AX", "read_focused_selection skipped: denylisted app")
+            return None
         # 焦点元素与其父链逐个试：Electron 应用的选区文本常挂在
         # 上层元素上，只问焦点元素本身会漏。
         for node in _element_chain(s, el, max_hops=3):
@@ -322,6 +331,9 @@ def try_replace_focused(translate_func: Callable[[str], str],
             _log_info("AX", "ax not applicable: no focused element")
             return False
         app = _app_name(s.get_pid(el0))
+        if app in _AX_APP_DENYLIST:
+            _log_info("AX", f"ax skipped: app={app} on denylist, clipboard flow")
+            return False
         picked = None
         roles = []
         for el in _element_chain(s, el0):

@@ -175,6 +175,10 @@ class LinuxKeyboardHook:
 
     def update_hotkeys(self, hotkeys):
         self._engine.update_actions(self._actions_from_hotkeys(hotkeys))
+
+    def set_replace_busy_check(self, fn):
+        """接线替换器的忙查询：替换进行中，引擎吞掉溢出空格。"""
+        self._engine.busy_check = fn
         # Record 线程读引擎表是实时的（matches_combo/handle_key_down
         # 都在锁内读当前表），改键即时生效；但 Grab 是 X 服务端状态，
         # 旧组合键仍被抓着（白白吞掉）、新组合键根本抓不到，所以钩子

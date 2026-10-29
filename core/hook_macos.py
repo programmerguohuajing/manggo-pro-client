@@ -148,6 +148,10 @@ class MacKeyboardHook:
 
     def update_hotkeys(self, hotkeys):
         self._engine.update_actions(self._actions_from_hotkeys(hotkeys))
+    def set_replace_busy_check(self, fn):
+        """接线替换器的忙查询：替换进行中，引擎吞掉溢出空格。"""
+        self._engine.busy_check = fn
+
 
     @property
     def max_interval(self) -> float:

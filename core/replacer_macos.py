@@ -170,6 +170,11 @@ class MacReplacer:
                 self._maybe_restore(have_backup, original_clipboard, last_flow_clipboard)
                 return
 
+            # 抓取结束先收起选区再去翻译：策略二的全选会一直活着
+            # 等网络返回（数秒），这段时间用户敲任何一个键都会把
+            # 全文顶掉。粘贴路径在粘前都重新选区并证明，收起不
+            # 影响后续；放弃路径本来也会收起，重复一次无害。
+            post_right()
             translated_en = self.translate_func(clean_text)
             if not translated_en or translated_en == clean_text:
                 post_right()
@@ -180,7 +185,7 @@ class MacReplacer:
             if use_all:
                 pasted = self._paste_all_verified(
                     translated_en, clean_text,
-                    have_backup, original_clipboard,
+                    have_backup, original_clipboard, captured,
                 )
             else:
                 pasted = self._paste_line_verified(
@@ -254,7 +259,7 @@ class MacReplacer:
         return False
 
     def _paste_all_verified(self, translated, clean_text,
-                            have_backup, original_clipboard) -> bool:
+                            have_backup, original_clipboard, raw_text="") -> bool:
         proven, last = False, ""
         for attempt in (1, 2):
             self._copy(translated)
@@ -284,7 +289,8 @@ class MacReplacer:
             # 本身证明此刻全文选区是活的：清空、把译文写回剪贴板
             # （回抓已覆盖了它）、重贴，结果确定。
             _log_info("REPLACER", "mac paste repair: original still present, clearing and re-pasting")
-            post_delete()
+            if not post_delete():
+                _log_error("REPLACER", "mac paste repair: delete post failed (paste will replace selection instead)")
             time.sleep(0.04)
             self._copy(translated)
             time.sleep(0.03)
@@ -294,9 +300,42 @@ class MacReplacer:
             post_right()
             ok = grabbed2 == translated or grabbed2.strip() == translated.strip()
             _log_info("REPLACER", f"mac paste repair {'verified' if ok else 'failed'}: field={grabbed2[:30]!r}")
+            if not ok:
+                # 修复已删过全文、译文又没粘稳，输入框正空着——
+                # 绝不把空文档留给户：把原文放回去兜底。
+                return self._restore_original(
+                    raw_text, have_backup, original_clipboard)
             return ok
         post_right()
         _log_info("REPLACER", f"mac paste unverified: field={grabbed[:30]!r}")
+        return False
+
+    def _restore_original(self, raw_text, have_backup, original_clipboard) -> bool:
+        """修复粘贴失败后的兜底：把抓到的原文原样放回输入框。
+
+        修复路径删过全文，此刻文档可能为空（数据丢失）。重新全选
+        并粘回未 strip 的原文，再回抓对账。连恢复都失败时，把原文
+        留在剪贴板并弹提示，用户至少能手动 Cmd+V 找回，不至于
+        内容凭空消失。返回值恒为 False（本次替换未成功）。
+        """
+        if not raw_text:
+            _log_error("REPLACER", "mac restore skipped: no raw text captured")
+            return False
+        post_cmd_key("A")
+        time.sleep(0.05)
+        self._copy(raw_text)
+        time.sleep(0.03)
+        post_cmd_key("V")
+        time.sleep(0.08)
+        grabbed = self._grab_all()
+        post_right()
+        ok = grabbed.strip() == raw_text.strip()
+        _log_info("REPLACER", f"mac restore original {'ok' if ok else 'FAILED'}: field={grabbed[:30]!r}")
+        if not ok:
+            self._copy(raw_text)
+            if self.notify_callback:
+                self.notify_callback(
+                    "failed", "替换失败，原文已放回剪贴板，请手动粘贴找回")
         return False
 
     def _paste_line_verified(self, translated, clean_text,
