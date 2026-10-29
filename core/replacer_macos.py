@@ -118,8 +118,20 @@ class MacReplacer:
             captured_all = self._wait_clipboard()
             last_flow_clipboard = captured_all
             _log_info("REPLACER", f"mac strategy 2 (all) captured {len(captured_all)} chars: {captured_all[:30]!r}")
-            if captured_all and self.contains_chinese(captured_all) and len(captured_all) < 2000:
-                captured = captured_all
+            use_all = False
+            if captured_all and self.contains_chinese(captured_all):
+                if len(captured_all) < 2000:
+                    captured = captured_all
+                    use_all = True
+                else:
+                    # Cmd+A 之后当前选区已经是全文：此时再按“光标行”的
+                    # 译文 Cmd+V，会把整篇文档替换成一行译文。宁可放弃。
+                    post_right()
+                    _log_info("REPLACER", f"mac aborted: text too long ({len(captured_all)} chars)")
+                    if self.notify_callback:
+                        self.notify_callback("failed", "文本过长（≥2000 字），请先选中要翻译的部分")
+                    self._maybe_restore(have_backup, original_clipboard, last_flow_clipboard)
+                    return
 
             clean_text = captured.strip() if captured else ""
             if not clean_text or not self.contains_chinese(clean_text):
@@ -137,8 +149,21 @@ class MacReplacer:
 
             self._copy(translated_en)
             time.sleep(0.05)
+            # 1.0.34：粘贴前重新建立选区。1.0.33 真机：抓取已正常
+            # （captured '测试'、pasted 4 chars），但 TextEdit 里结果是
+            # “Test测试”——译文插在了前面，原文没被替换：翻译请求的这段
+            # 时间里选区已经塌缩，Cmd+V 落成了插入。用全文时再按一次
+            # Cmd+A，保证粘贴替换的就是刚才抓取的那段。
+            if use_all:
+                post_cmd_key("A")
+                time.sleep(0.08)
+            pb_now = self._paste()
+            _log_info(
+                "REPLACER",
+                f"mac paste: reselect_all={use_all}, clipboard_ok={pb_now == translated_en}",
+            )
             post_cmd_key("V")
-            _log_info("REPLACER", f"mac pasted {len(translated_en)} chars")
+            _log_info("REPLACER", f"mac pasted {len(translated_en)} chars: {translated_en[:30]!r}")
         except Exception as e:
             _log_error("REPLACER", f"mac replace flow failed: {e}")
             if self.notify_callback:
