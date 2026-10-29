@@ -75,6 +75,12 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
+      # macOS 专属：PySide6 6.12 的 Qt 要求 macOS 14+ 的 libc++
+      #（__libcpp_verbose_abort），老 Mac（<=13，如 2015 MBP 的 12.7.6）
+      # 启动即 ImportError。6.11.3 经全 .so 扫描不含该符号，且满足
+      # requirements.txt（>=6.6），故 macOS 单独钉 6.11.3；Windows/Linux 不动。
+      - name: Pin PySide6 6.11.3 for macOS (pre-14 libc++ compat)
+        run: pip install "PySide6-Essentials==6.11.3"
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e
@@ -129,6 +135,12 @@ jobs:
           cache-dependency-path: requirements-build.txt
       - name: Install dependencies
         run: pip install -r requirements-build.txt
+      # macOS 专属：PySide6 6.12 的 Qt 要求 macOS 14+ 的 libc++
+      #（__libcpp_verbose_abort），老 Mac（<=13，如 2015 MBP 的 12.7.6）
+      # 启动即 ImportError。6.11.3 经全 .so 扫描不含该符号，且满足
+      # requirements.txt（>=6.6），故 macOS 单独钉 6.11.3；Windows/Linux 不动。
+      - name: Pin PySide6 6.11.3 for macOS (pre-14 libc++ compat)
+        run: pip install "PySide6-Essentials==6.11.3"
       - name: Generate .icns from app.png (best effort)
         run: |
           set +e
