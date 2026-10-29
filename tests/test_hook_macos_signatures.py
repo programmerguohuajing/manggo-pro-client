@@ -47,5 +47,17 @@ class SignaturesTest(unittest.TestCase):
         self.assertGreaterEqual(self.src.count("CFRelease.argtypes"), 2)
 
 
+class ThreadTargetTest(unittest.TestCase):
+    """1.0.27 实测：self._run_loop 属性与 _run_loop 方法同名，属性把
+    方法遮蔽，Thread(target=None) 空转退出，钩子等满 2 秒 abort。
+    守卫：实例的 _run_loop 必须仍是可调用的方法。"""
+
+    def test_run_loop_method_not_shadowed(self):
+        from core.hook_macos import MacKeyboardHook
+
+        hook = MacKeyboardHook()
+        self.assertTrue(callable(hook._run_loop))
+
+
 if __name__ == "__main__":
     unittest.main()

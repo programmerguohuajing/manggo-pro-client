@@ -122,7 +122,10 @@ class MacKeyboardHook:
         self._tap = None
         self._callback_ref = None
         self._thread: Optional[threading.Thread] = None
-        self._run_loop = None
+        # 注意命名：CFRunLoop 引用不能叫 _run_loop——那是线程方法的名字，
+        # 同名属性会在 __init__ 里把方法遮蔽掉（1.0.27 实测：线程拿到
+        # target=None 空转退出，钩子等满 2 秒 abort）。
+        self._cf_run_loop = None
         self._loop_ready = threading.Event()
         self._running = False
         self.last_error = ""
@@ -260,7 +263,9 @@ class MacKeyboardHook:
         if not tap:
             self.last_error = (
                 "未能创建全局按键监听：请在系统设置 → 隐私与安全性 → "
-                "辅助功能与输入监控中允许 ManggoProClient，然后重试。"
+                "辅助功能与输入监控中允许 ManggoProClient；如果列表里已经"
+                "勾选了，请先用 − 删除、再用 + 重新添加（应用更新后二进制"
+                "变化，旧授权会失效），然后重启应用。"
             )
             _log_error("HOOK", f"mac CGEventTapCreate failed: {self.last_error}")
             self._callback_ref = None
@@ -287,7 +292,7 @@ class MacKeyboardHook:
                 self._running = False
                 self._loop_ready.set()
                 return
-            self._run_loop = cf.CFRunLoopGetCurrent()
+            self._cf_run_loop = cf.CFRunLoopGetCurrent()
             # 运行循环 mode 必须传真正的 CFString（kCFRunLoopCommonModes，
             # 抽头事件在所有 common mode 下都投递）；它以导出变量形式存在，
             # 用 in_dll 取地址，绝不能传 NULL（NULL 不是合法 mode）。
@@ -295,10 +300,11 @@ class MacKeyboardHook:
                 mode = ctypes.c_void_p.in_dll(cf, "kCFRunLoopCommonModes")
             except Exception:
                 mode = ctypes.c_void_p.in_dll(cf, "kCFRunLoopDefaultMode")
-            cf.CFRunLoopAddSource(self._run_loop, source, mode)
+            cf.CFRunLoopAddSource(self._cf_run_loop, source, mode)
             cf.CFRelease(source)
             cg.CGEventTapEnable(self._tap, True)
             self._loop_ready.set()
+            _log_info("HOOK", "mac run loop running (event tap live)")
             cf.CFRunLoopRun()
         except Exception as e:
             try:
@@ -313,9 +319,9 @@ class MacKeyboardHook:
         if not self._running and self._thread is None:
             return
         self._running = False
-        if self._run_loop is not None and self._cf is not None:
+        if self._cf_run_loop is not None and self._cf is not None:
             try:
-                self._cf.CFRunLoopStop(self._run_loop)
+                self._cf.CFRunLoopStop(self._cf_run_loop)
             except Exception:
                 pass
         if self._thread is not None and self._thread.is_alive():
@@ -327,7 +333,7 @@ class MacKeyboardHook:
             except Exception:
                 pass
         self._tap = None
-        self._run_loop = None
+        self._cf_run_loop = None
         self._callback_ref = None
         self._thread = None
         _log_info("HOOK", "mac event tap stopped")
