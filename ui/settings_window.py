@@ -1201,6 +1201,10 @@ class SettingsWindow(QWidget):
         # 在线更新：手动检查 GitHub Releases，有新版按平台引导覆盖安装。
         update_row = QHBoxLayout()
         self.btn_check_update = QPushButton("检查更新")
+        # 此前没挂任何样式：Windows 原生按钮自带边框还像个按钮，
+        # macOS 上只剩一行文字，用户根本看不出能点（实测反馈）。
+        # 挂主题的 SecondaryBtn（带边框次按钮），三平台一致。
+        self.btn_check_update.setProperty("class", "SecondaryBtn")
         self.btn_check_update.clicked.connect(self._on_check_update)
         update_row.addWidget(self.btn_check_update)
         self.lbl_update_status = QLabel("点击检查更新，查看是否有新版本。")
