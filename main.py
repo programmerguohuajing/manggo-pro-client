@@ -319,6 +319,17 @@ class AppCoordinator(QObject):
             waited = wait_until_modifiers_released()
             if waited and waited > 0.05:
                 _log_info("APP", f"[SELECTION] waited {waited:.2f}s for modifiers to release")
+            # 先试 AX 静默读取选中文本：不发 Cmd+C 就没有「编辑」菜单
+            # 闪烁，也不惊动剪贴板；读不到再走下面的合成键流程。
+            try:
+                from core import ax_macos as _ax
+                _ax_text = _ax.read_focused_selection()
+            except Exception:
+                _ax_text = None
+            if _ax_text and _ax_text.strip():
+                _log_info("APP", f"[SELECTION] Captured via AX: {len(_ax_text.strip())} chars")
+                self.selection_translate_signal.emit(_ax_text.strip())
+                return
             captured = ""
             for attempt in (1, 2):
                 if attempt == 2:

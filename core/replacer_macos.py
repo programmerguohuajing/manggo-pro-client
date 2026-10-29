@@ -97,6 +97,18 @@ class MacReplacer:
         last_flow_clipboard = ""
         try:
             time.sleep(0.04)
+            # 静默路径优先：AX 直接读写焦点元素，不发 Cmd 组合键、不动
+            # 剪贴板——也就不会让菜单栏「编辑」随每个合成快捷键逐个
+            # 闪烁（用户视频反馈），顺带不覆盖用户的剪贴板。AX 不适用
+            # 或写后回读校验不过时，完整回退到下面的剪贴板流程。
+            try:
+                from core import ax_macos
+                if ax_macos.try_replace_focused(self.translate_func, self.contains_chinese):
+                    _log_info("REPLACER", "mac replace done via AX (silent path)")
+                    return
+                _log_info("REPLACER", "mac AX path not applicable, clipboard flow")
+            except Exception as e:
+                _log_debug("REPLACER", f"mac AX attempt raised, clipboard flow: {e}")
             try:
                 original_clipboard = self._paste()
                 have_backup = True
