@@ -11,7 +11,7 @@ macOS 的 TCC 授权（辅助功能、输入监控、屏幕录制）按应用的
 ## 证书
 
 - 主题：CN=ManggoProClient Signing, O=jingguohua（自签，非 Apple 颁发）
-- SHA-1 指纹：6CB75FAA040EC071C55DD37CC6AA16AAA1234D0B
+- SHA-1 指纹：4B194491BA69C06097820C2673AB07FA8C0E31FB
 - 有效期：2026-10-29 – 2036-10-26
 - 密钥用法：Digital Signature；扩展用途：Code Signing
 - 私钥与口令只存在 GitHub 仓库 Secrets 里：
@@ -38,6 +38,12 @@ ManggoProClient.app 做 codesign --force --deep --timestamp=none，
 ## 轮换（换证书）
 
 1. 本地重新生成自签证书（openssl req -x509，扩展同上，有效期 10 年）；
-2. 更新仓库的两个 Secrets；
-3. 发新版本。换证书的那一版，用户仍需把三项授权删+重加一次
+2. 导出 .p12 时必须用旧算法：openssl pkcs12 -export -legacy
+   （macOS 的 security import 读不了 OpenSSL 3 默认的新算法
+   PKCS#12，会报一个误导性的“MAC verification failed (wrong
+   password?)”——2026-10-29 首版证书就栽在这里，v1.0.32 的两个
+   macOS 构建因此失败、整版未发布；那张证书从未随任何构建出厂，
+   已于同日替换为现行证书，替换无用户影响）；
+3. 更新仓库的两个 Secrets；
+4. 发新版本。换证书的那一版，用户仍需把三项授权删+重加一次
    （身份变了）；之后恢复跨版本保留。
