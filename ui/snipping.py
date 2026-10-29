@@ -9,6 +9,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QCursor, QFon
 
 from ui import theme
 from core.logging import debug as _log_debug
+from core.platform import IS_MAC
 
 class SnippingWidget(QWidget):
     screenshot_captured = Signal(object)  # 发射 PIL Image
@@ -54,7 +55,13 @@ class SnippingWidget(QWidget):
         self.end_point = QPoint()
         self.is_snipping = False
 
-        self.setWindowState(Qt.WindowFullScreen)
+        if IS_MAC:
+            # 不用原生全屏：它会新建 Space，遮罩关闭后应用会被留在
+            # 空黑 Space 里（实测 OCR 完成后关掉结果窗、应用黑屏）。
+            # 无边框置顶窗 + 已设好的全屏几何足够铺满屏幕。
+            self.setWindowState(Qt.WindowNoState)
+        else:
+            self.setWindowState(Qt.WindowFullScreen)
         self.show()
         self.raise_()
         self.activateWindow()
