@@ -118,6 +118,16 @@ class MacReplacer:
                     # 的空转闪烁正是这条）。
                     _log_info("REPLACER", "mac AX: nothing to translate, clipboard flow skipped")
                     return
+                if ax_result == ax_macos.RESULT_ABORT:
+                    # 混合粘贴失败且撤销没能恢复原文：文档状态未
+                    # 确认，整体停止——绝不在这种文档上再跑剪贴板
+                    # 流程（它的抓取/证明会被污染文本带偏）。
+                    _log_error("REPLACER", "mac AX hybrid aborted: document state unconfirmed, stopping")
+                    if self.notify_callback:
+                        self.notify_callback(
+                            "failed",
+                            "替换校验失败且自动撤销未成功，已停止，请检查文档或手动撤销一次")
+                    return
                 _log_info("REPLACER", "mac AX path not applicable, clipboard flow")
             except Exception as e:
                 _log_debug("REPLACER", f"mac AX attempt raised, clipboard flow: {e}")

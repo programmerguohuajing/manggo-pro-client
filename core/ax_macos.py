@@ -26,6 +26,7 @@ NSTextView 最稳，Electron/Chromium 看版本）。所以本模块只做
 
 import ctypes
 import ctypes.util
+import os
 import time
 from typing import Callable, Optional
 
@@ -46,6 +47,55 @@ _ATTR_PARENT = "AXParent"
 # AX（含读选区），一律回退剪贴板流程——慢一点，但不碰它的 AX
 # 实现。进程名取可执行文件基名（飞书国际版叫 Lark）。
 _AX_APP_DENYLIST = {"Feishu", "Lark"}
+
+# try_replace_focused 的第四种返回：混合粘贴失败且自动撤销也没能
+# 恢复原文——文档状态未确认，调用方必须整体停止（绝不能再走剪贴板
+# 流程在一份状态不明的文档上继续操作），并提示用户检查文档。
+RESULT_ABORT = "abort"
+
+_KIND_CACHE = {}
+
+
+def _ps_comm(pid) -> str:
+    """pid -> 可执行文件全路径（ps comm）；失败返回空串。"""
+    if not pid:
+        return ""
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            capture_output=True, text=True, timeout=2,
+        )
+        return (out.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def _kind_for_exe_path(path: str) -> str:
+    """按可执行文件路径判应用类型：安装包的 Frameworks 里有
+    Electron / CEF 框架就是 'electron'，否则 'native'。
+    不靠应用名单——新出的 Electron 应用也自动覆盖。"""
+    if not path:
+        return "native"
+    if path in _KIND_CACHE:
+        return _KIND_CACHE[path]
+    kind = "native"
+    marker = "/Contents/MacOS/"
+    if marker in path:
+        frameworks = os.path.join(
+            path.split(marker)[0], "Contents", "Frameworks")
+        for name in ("Electron Framework.framework",
+                     "Chromium Embedded Framework.framework"):
+            if os.path.isdir(os.path.join(frameworks, name)):
+                kind = "electron"
+                break
+    _KIND_CACHE[path] = kind
+    return kind
+
+
+def detect_app_kind(pid) -> str:
+    """前台应用类型：'electron' 走混合模式（见 try_replace_focused）。"""
+    return _kind_for_exe_path(_ps_comm(pid))
 _ATTR_ROLE = "AXRole"
 
 
@@ -217,18 +267,8 @@ class _Ax:
 
 def _app_name(pid) -> str:
     """pid -> 进程名（日志归因用，如 Typora/TextEdit）；失败给 '?'。"""
-    if not pid:
-        return "?"
-    try:
-        import subprocess
-        out = subprocess.run(
-            ["/bin/ps", "-p", str(pid), "-o", "comm="],
-            capture_output=True, text=True, timeout=2,
-        )
-        name = (out.stdout or "").strip()
-        return name.rsplit("/", 1)[-1] or "?"
-    except Exception:
-        return "?"
+    path = _ps_comm(pid)
+    return path.rsplit("/", 1)[-1] if path else "?"
 
 
 def _element_chain(s, el, max_hops=4):
@@ -304,6 +344,60 @@ def read_focused_selection() -> Optional[str]:
         s.close()
 
 
+def _hybrid_paste(s, el, start, length, translated, original_value,
+                  expected, app):
+    """Electron 混合写入（用户 2026-10-29 拍板的 B 方案）。
+
+    AX 只做读与设选区——绝不用 AX 写文本（Chromium 的 AX 文本
+    写入是最脆弱的一档，飞书疑似就栽在这里）；真正的写入是把
+    译文放上剪贴板、发一次 Cmd+V（整轮只闪一次菜单）。写后 AX
+    回读对账：一致才算成功；不一致先 Cmd+Z 撤销并回读确认文档
+    回到原文，确认干净才返回 False 让剪贴板流程接管；撤销都
+    恢复不了则返回 RESULT_ABORT，整体停止，不在状态不明的
+    文档上继续操作。动剪贴板前先备份，失败退出时还原。
+    """
+    import pyperclip
+
+    from core.hook_macos import post_cmd_key
+
+    range_ref = s.make_range(start, length)
+    if not range_ref:
+        return False
+    err = s.set_attr(el, _ATTR_SELECTED_RANGE, range_ref)
+    if err != _AX_OK:
+        _log_info("AX", f"ax hybrid: selection set failed err={err} (app={app})")
+        return False
+    try:
+        saved_clip = pyperclip.paste() or ""
+    except Exception:
+        saved_clip = ""
+    try:
+        pyperclip.copy(translated)
+    except Exception as e:
+        _log_info("AX", f"ax hybrid: clipboard write failed: {e}")
+        return False
+    time.sleep(0.03)
+    post_cmd_key("V")
+    time.sleep(0.1)
+    if s.reread_equals(el, expected):
+        _log_info("AX", f"ax hybrid replaced {length} chars with "
+                        f"{len(translated)} chars (electron: AX read+select, one Cmd+V)")
+        return True
+    # 粘贴没落准：撤销一次，回读确认文档回到原文才敢交棒。
+    post_cmd_key("Z")
+    time.sleep(0.08)
+    if s.reread_equals(el, original_value):
+        try:
+            pyperclip.copy(saved_clip)
+        except Exception:
+            pass
+        _log_info("AX", f"ax hybrid paste unverified, undone cleanly (app={app}); clipboard flow takes over")
+        return False
+    _log_info("AX", f"ax hybrid FAILED unrecoverably: app={app} "
+                    f"field={s.read_value(el)!r:.60} expected={expected!r:.60}")
+    return RESULT_ABORT
+
+
 def try_replace_focused(translate_func: Callable[[str], str],
                         contains_chinese: Callable[[str], bool]):
     """AX 静默替换，三态返回：
@@ -316,6 +410,12 @@ def try_replace_focused(translate_func: Callable[[str], str],
       才报 aborted，正是这种空转）；
     - False：读不到值 / 选区，或写入不被目标应用接受，调用方
       回退剪贴板流程。
+    - RESULT_ABORT：Electron 混合粘贴失败且自动撤销未能恢复
+      原文，文档状态未确认；调用方必须整体停止并提示用户。
+
+    应用分层（B 方案）：原生应用走全 AX（读 + 写）；Electron
+    应用只用 AX 读与设选区，写入走一次 Cmd+V 的混合模式
+    （_hybrid_paste）；黑名单应用（飞书）完全不碰 AX。
 
     失败与空转的原因一律 INFO 打出（应用名、元素角色、AX 错误
     码），不再埋进 DEBUG——1.0.38 的日志只看得到“not applicable”，
@@ -372,6 +472,9 @@ def try_replace_focused(translate_func: Callable[[str], str],
             return None
         start, length = plan["start"], plan["length"]
         expected = value[:start] + translated + value[start + length:]
+        if detect_app_kind(s.get_pid(el0)) == "electron":
+            return _hybrid_paste(
+                s, el, start, length, translated, value, expected, app)
         # 写入一：把选区设到目标区段，再写 AXSelectedText（等价于对
         # 选区打字，不经剪贴板、不发组合键）。
         ok = False
