@@ -34,9 +34,11 @@ v1 不做静默自动安装、不做增量更新：下载完成后按平台引�
 """
 
 import hashlib
+import html
 import json
 import os
 import platform
+import re
 import sys
 import tempfile
 import urllib.error
@@ -95,6 +97,29 @@ def is_newer(remote_version, local_version) -> bool:
     if remote is None or local is None:
         return False
     return remote > local
+
+
+def release_notes_to_html(notes) -> str:
+    """把 Release 正文转成更新弹窗可用的富文本（纯文本处理，不依赖 Qt）。
+
+    - 先转义 HTML，防止正文里的 < > & 被当成标签；
+    - **加粗** → <b>；
+    - URL → 可点链接；compare 链接显示为“查看完整更新日志”，其余显示原地址；
+    - 换行 → <br>。
+    调用方（更新弹窗）把返回串交给 QTextBrowser 显示，链接由它打开浏览器。
+    """
+    text = html.escape(notes or "")
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+    def _link(m):
+        url = m.group(0)
+        # url 来自已转义文本（& 已是 &amp;），直接放进 href 与文案都安全，
+        # 不要二次转义（否则 &amp; 会显示成字面 &amp;）。
+        label = "查看完整更新日志" if "/compare/" in url else url
+        return f'<a href="{url}">{label}</a>'
+
+    text = re.sub(r"https?://[^\s<>\"']+", _link, text)
+    return text.replace("\n", "<br>")
 
 
 def _fetch_api_release(url, timeout):

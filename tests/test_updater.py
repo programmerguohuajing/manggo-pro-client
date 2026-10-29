@@ -358,3 +358,31 @@ class IntegrityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReleaseNotesToHtmlTest(unittest.TestCase):
+    """release_notes_to_html：更新弹窗的日志富文本转换（纯文本，无 Qt）。"""
+
+    def test_bold_and_compare_link(self):
+        out = updater.release_notes_to_html(
+            "**Full Changelog**: https://github.com/programmerguohuajing/manggo-pro-client/compare/v1.0.20...v1.0.21"
+        )
+        self.assertIn("<b>Full Changelog</b>", out)
+        self.assertIn(
+            '<a href="https://github.com/programmerguohuajing/manggo-pro-client/compare/v1.0.20...v1.0.21">查看完整更新日志</a>',
+            out,
+        )
+        self.assertNotIn("**", out)
+
+    def test_plain_url_kept_as_label(self):
+        out = updater.release_notes_to_html("见 https://example.com/a")
+        self.assertIn('<a href="https://example.com/a">https://example.com/a</a>', out)
+
+    def test_html_escaped_and_newlines(self):
+        out = updater.release_notes_to_html("a<b\nc&d")
+        self.assertIn("a&lt;b<br>c&amp;d", out)
+        self.assertNotIn("<b\n", out)
+
+    def test_empty(self):
+        self.assertEqual(updater.release_notes_to_html(""), "")
+        self.assertEqual(updater.release_notes_to_html(None), "")

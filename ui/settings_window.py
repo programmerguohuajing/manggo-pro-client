@@ -30,6 +30,7 @@ from core.hotkeys import (
 from core.platform import IS_WINDOWS
 from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
+from ui.update_dialog import UpdateDialog
 from core.logging import error as _log_error, debug as _log_debug
 from core.version import get_version, get_channel
 from core import updater
@@ -1266,15 +1267,10 @@ class SettingsWindow(QWidget):
             return
         self._set_update_dot(True)
         notes = (release.get("body") or "").strip()
-        if len(notes) > 500:
-            notes = notes[:500] + "…"
-        box = QMessageBox(self)
-        box.setWindowTitle("发现新版本")
-        box.setText(f"新版本 {remote} 已发布（当前 {local}）。\n\n{notes}")
-        btn_update = box.addButton("立即更新", QMessageBox.AcceptRole)
-        box.addButton("稍后", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is not btn_update:
+        # 重设计弹窗（ui/update_dialog.py，方案 A）：日志区可滚动，不再半截截断；
+        # 行为不变：接受=立即更新，拒绝/关闭=跳过。
+        dlg = UpdateDialog(self, local, remote, notes)
+        if dlg.exec() != QDialog.Accepted:
             self.lbl_update_status.setText(f"已跳过新版本 {remote}。")
             return
         self.btn_check_update.setEnabled(False)
