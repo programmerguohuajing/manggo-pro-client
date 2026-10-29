@@ -233,6 +233,10 @@ class MacKeyboardHook:
         cg.CFMachPortCreateRunLoopSource.argtypes = [
             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int
         ]
+        # 这一行漏了就会在 stop() 时崩：无 argtypes 时 ctypes 把
+        # 64 位指针按 C int（32 位）传递，截断后的地址必然非法
+        # （1.0.26 实测崩溃报告：CFMachPortInvalidate SIGSEGV）。
+        cg.CFMachPortInvalidate.argtypes = [ctypes.c_void_p]
         cf.CFRunLoopGetCurrent.restype = ctypes.c_void_p
         cf.CFRunLoopAddSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
         cf.CFRunLoopRun.argtypes = []
@@ -330,6 +334,20 @@ class MacKeyboardHook:
 
 
 # ---- CGEvent 合成按键（划选 Cmd+C、就地替换 Cmd+A/C/V、Shift+Cmd+Left 用） ----
+def _cf_lib():
+    """CoreFoundation 句柄（带 CFRelease 签名声明）。
+
+    注意：argtypes 是挂在 CDLL 实例的函数对象上的，给 self._cf 声明
+    过不等于给新 load 的句柄声明过——post_key 此前就栽在这里
+    （新句柄无声明，CFRelease 的指针参数被截断）。
+    """
+    lib = _load_lib("CoreFoundation")
+    if lib is None:
+        raise RuntimeError("CoreFoundation 不可用")
+    lib.CFRelease.argtypes = [ctypes.c_void_p]
+    return lib
+
+
 def _cg_lib():
     lib = _load_lib("CoreGraphics")
     if lib is None:
@@ -346,7 +364,7 @@ def _cg_lib():
 def post_key(keycode: int, flags: int = 0, delay: float = 0.02):
     """合成一次按键（按下 + 抬起），flags 显式指定，与物理修饰键无关。"""
     lib = _cg_lib()
-    cf = _load_lib("CoreFoundation")
+    cf = _cf_lib()
     for down in (True, False):
         ev = lib.CGEventCreateKeyboardEvent(None, keycode, down)
         if not ev:
