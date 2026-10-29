@@ -8,3 +8,5 @@ numpy>=1.26
 rapidocr-onnxruntime>=1.3
 # 仅 Windows：单实例互斥体、SAPI 朗读
 pywin32>=306; sys_platform == "win32"
+# 仅 Linux：X11 全局热键（XGrabKey/XRecord/XTest，见 core/hook_linux）
+python-xlib>=0.33; sys_platform == "linux"

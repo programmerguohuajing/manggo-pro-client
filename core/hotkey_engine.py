@@ -22,6 +22,7 @@ Option 键在后端映射成 'Alt'，Cmd 不进热键判定）。
 抬起事件（handle_key_up）只清按住态，永不触发、永不吞键。
 """
 
+import threading
 import time
 from typing import FrozenSet, List, Optional, Tuple
 
@@ -44,6 +45,9 @@ class HotkeyEngine:
         不吞键；macOS 上 workbench/voice 不在首批范围就是这么处理的）。
         """
         self.max_interval = max_interval
+        # Linux 双线程喂事件（XGrabKey 组合键 + XRecord 三次空格）：
+        # 判定表与按住态必须加锁，否则两个线程同时喂会互相污染。
+        self._lock = threading.RLock()
         self._table: List[Tuple[FrozenSet[str], str, str]] = []
         self._set_table(actions)
         # (修饰键排序元组, 主键名)：当前按住未抬起的组合键（防重复触发）。
@@ -57,11 +61,23 @@ class HotkeyEngine:
 
     def update_actions(self, actions):
         """重建判定表（设置页改键后即时生效，不用重启后端）。"""
-        self._set_table(actions)
-        self._down.clear()
-        self._space_down = False
-        self.space_count = 0
-        self.last_space_time = 0.0
+        with self._lock:
+            self._set_table(actions)
+            self._down.clear()
+            self._space_down = False
+            self.space_count = 0
+            self.last_space_time = 0.0
+
+    def matches_combo(self, main_key: str, mods_down: FrozenSet[str]) -> bool:
+        """只查表、不改状态：Linux 的 XRecord 线程用它过滤组合键
+        （组合键由 XGrabKey 线程专责触发，Record 线程跳过它们，
+        否则同一按键会被两个线程各喂一次，触发权会被先喂的抢走）。"""
+        with self._lock:
+            mods = frozenset(mods_down)
+            return any(
+                main_key == table_key and mods == table_mods
+                for table_mods, table_key, _action in self._table
+            )
 
     def handle_key_down(
         self,
@@ -71,6 +87,12 @@ class HotkeyEngine:
         now: Optional[float] = None,
     ) -> Tuple[Optional[str], bool]:
         """处理一次按键按下。返回 (触发动作或 None, 是否吞键)。"""
+        with self._lock:
+            return self._handle_key_down_locked(main_key, mods_down, is_repeat, now)
+
+    def _handle_key_down_locked(
+        self, main_key, mods_down, is_repeat, now
+    ) -> Tuple[Optional[str], bool]:
         if now is None:
             now = time.time()
         mods = frozenset(mods_down)
@@ -113,7 +135,8 @@ class HotkeyEngine:
 
     def handle_key_up(self, main_key: str) -> None:
         """处理一次按键抬起：清按住态（组合键下次按下可重新触发）。"""
-        if self._down:
-            self._down = {k for k in self._down if k[1] != main_key}
-        if main_key == "Space":
-            self._space_down = False
+        with self._lock:
+            if self._down:
+                self._down = {k for k in self._down if k[1] != main_key}
+            if main_key == "Space":
+                self._space_down = False

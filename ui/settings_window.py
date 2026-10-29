@@ -27,7 +27,7 @@ from core.hotkeys import (
     parse_hotkey,
     validate_hotkeys,
 )
-from core.platform import IS_WINDOWS
+from core.platform import IS_WINDOWS, IS_MAC, IS_LINUX
 from ui import theme
 from ui.theme import SETTINGS_STYLESHEET
 from ui.update_dialog import UpdateDialog
@@ -766,7 +766,7 @@ class SettingsWindow(QWidget):
         self.chk_triple_space.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         c_layout.addWidget(self.chk_triple_space)
 
-        if not IS_WINDOWS and not IS_MAC:
+        if not IS_WINDOWS and not IS_MAC and not IS_LINUX:
             lbl_platform = QLabel("当前平台暂不支持全局热键与三次空格转译（开发中）；这里的开关是你的偏好，功能上线后即按此生效，托盘因此显示“热键暂不可用”而非“已暂停”。")
             lbl_platform.setProperty("class", "SectionDesc")
             lbl_platform.setWordWrap(True)

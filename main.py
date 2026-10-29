@@ -37,7 +37,7 @@ _stage("import-pyside6-done")
 import pyperclip
 _stage("import-pyperclip-done")
 
-from core.platform import IS_WINDOWS, IS_MAC
+from core.platform import IS_WINDOWS, IS_MAC, IS_LINUX
 
 if IS_WINDOWS:
     import win32api
@@ -56,6 +56,8 @@ _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook, hook_self_check
 from core.hook_macos import MacKeyboardHook, post_cmd_key
 from core.replacer_macos import MacReplacer
+from core.hook_linux import LinuxKeyboardHook, xtest_ctrl_key, open_display
+from core.replacer_linux import LinuxReplacer
 _stage("import-hook-done")
 from core.logging import error as _log_error, info as _log_info
 _stage("import-logging-done")
@@ -143,7 +145,7 @@ class AppCoordinator(QObject):
         self.settings_win = SettingsWindow()
         self.console_win = ConsoleWindow()
         self.tray = TrayManager(
-            initial_enabled=self.config.get("triple_space_enabled", True) and (IS_WINDOWS or IS_MAC),
+            initial_enabled=self.config.get("triple_space_enabled", True) and (IS_WINDOWS or IS_MAC or IS_LINUX),
             engine_label=self._engine_label(),
             hotkeys=self.config.get("hotkeys"),
         )
@@ -151,9 +153,14 @@ class AppCoordinator(QObject):
         # 3. 信号绑定
         self._bind_signals()
 
-        # 4. 就地替换引擎 (三次空格)：macOS 用 Cmd 系合成按键版。
+        # 4. 就地替换引擎 (三次空格)：macOS 用 Cmd 系，Linux 用 Ctrl 系。
         if IS_MAC:
             self.replacer = MacReplacer(
+                translate_func=self.trans_mgr.translate_to_en,
+                notify_callback=self._notify_bridge
+            )
+        elif IS_LINUX:
+            self.replacer = LinuxReplacer(
                 translate_func=self.trans_mgr.translate_to_en,
                 notify_callback=self._notify_bridge
             )
@@ -168,6 +175,17 @@ class AppCoordinator(QObject):
         # voice 不接，对应组合键直接放行不吞键）。
         if IS_MAC:
             self.hook = MacKeyboardHook(
+                on_triple_space=self.replacer.trigger_triple_space_replace,
+                on_selection_translate=self._on_hotkey_selection,
+                on_screenshot_translate=self.open_snipping_signal.emit,
+                on_voice_input=None,
+                on_open_main=None,
+                max_interval=self.config.get("max_interval_ms", 750) / 1000.0,
+                hotkeys=normalize_hotkeys(self.config.get("hotkeys")),
+            )
+        elif IS_LINUX:
+            # Linux 首批范围与 macOS 相同：三次空格 + Alt+Q/W。
+            self.hook = LinuxKeyboardHook(
                 on_triple_space=self.replacer.trigger_triple_space_replace,
                 on_selection_translate=self._on_hotkey_selection,
                 on_screenshot_translate=self.open_snipping_signal.emit,
@@ -198,6 +216,16 @@ class AppCoordinator(QObject):
                 self.toast.show_message("success", "Manggo Pro 已就绪 · 全局热键已启用（双击托盘打开设置，3次空格转译）")
             else:
                 _log_error("HOOK", f"mac hook NOT started: {self.hook.last_error}")
+                self.toast.show_message("failed", f"全局热键未能启用：{self.hook.last_error}")
+                self.tray.set_enabled(False)
+        elif IS_LINUX:
+            # Linux：start() 内已做 Wayland/DISPLAY/Xlib 校验，失败原因
+            # 直接报出来（Wayland 会话、缺 X、无 python-xlib 都不静默）。
+            if self.hook.start():
+                _log_info("HOOK", "linux X11 hook started")
+                self.toast.show_message("success", "Manggo Pro 已就绪 · 全局热键已启用（双击托盘打开设置，3次空格转译）")
+            else:
+                _log_error("HOOK", f"linux hook NOT started: {self.hook.last_error}")
                 self.toast.show_message("failed", f"全局热键未能启用：{self.hook.last_error}")
                 self.tray.set_enabled(False)
         else:
@@ -298,8 +326,50 @@ class AppCoordinator(QObject):
             else:
                 self.notify_signal.emit("failed", "未检测到鼠标选中文本")
             return
+        if IS_LINUX:
+            # Linux：XTest 合成 Ctrl+C（与 macOS 同款“先清空再等非空”）；
+            # 剪贴板本身坏了（缺 xclip/xsel）时直接明说，不走误导的轮询。
+            try:
+                pyperclip.copy("")
+            except Exception:
+                self.notify_signal.emit("failed", "Linux 剪贴板需要 xclip 或 xsel（例如：sudo apt install xclip）")
+                return
+            dpy = open_display()
+            if dpy is None:
+                self.notify_signal.emit("failed", "无法连接 X 服务器")
+                return
+            captured = ""
+            try:
+                for attempt in (1, 2):
+                    if attempt == 2:
+                        time.sleep(0.1)
+                    time.sleep(0.02)
+                    xtest_ctrl_key(dpy, "c")
+                    start = time.time()
+                    while time.time() - start < 0.8:
+                        try:
+                            text = pyperclip.paste().strip()
+                        except Exception:
+                            text = ""
+                        if text:
+                            captured = text
+                            break
+                        time.sleep(0.02)
+                    if captured:
+                        break
+            finally:
+                try:
+                    dpy.close()
+                except Exception:
+                    pass
+            if captured:
+                _log_info("APP", f"[SELECTION] Captured: {len(captured)} chars")
+                self.selection_translate_signal.emit(captured)
+            else:
+                self.notify_signal.emit("failed", "未检测到鼠标选中文本")
+            return
         if not IS_WINDOWS:
-            self.notify_signal.emit("failed", "划选翻译 Linux 版开发中，当前版本暂不支持")
+            self.notify_signal.emit("failed", "划选翻译当前平台暂不支持")
             return
         # 2026-10-28：不再注入 Alt 抬起、不再发 Esc。旧做法的问题：
         # 注入的 Alt 抬起本身就是一次“光秃秃的 Alt”，会让 Claude /
@@ -438,9 +508,20 @@ class AppCoordinator(QObject):
                 self.hook.stop()
                 self.toast.show_message("error", "快捷转译已暂停")
             return
+        if IS_LINUX:
+            if enabled:
+                if self.hook.start():
+                    self.toast.show_message("success", "快捷转译已恢复")
+                else:
+                    self.toast.show_message("failed", f"全局热键未能启用：{self.hook.last_error}")
+                    self.tray.set_enabled(False)
+            else:
+                self.hook.stop()
+                self.toast.show_message("error", "快捷转译已暂停")
+            return
         if not IS_WINDOWS:
             self.tray.set_enabled(False)
-            self.toast.show_message("error", "全局热键 Linux 版开发中，当前版本暂不支持")
+            self.toast.show_message("error", "全局热键当前平台暂不支持")
             return
         if enabled:
             # 恢复也要先自检：启动时自检没过的钩子，恢复时同样不许装。
