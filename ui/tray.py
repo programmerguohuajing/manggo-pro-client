@@ -8,7 +8,8 @@
 - 新增“诊断控制台”入口（open_console_requested），其余 8 个信号原样保留；
 - 启动气泡文案缩短，不再堆三行说明。
 """
-from PySide6.QtCore import Signal, QObject
+from PySide6.QtCore import Signal, QObject, QTimer
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 
 from ui import theme
@@ -18,6 +19,10 @@ from core.platform import IS_WINDOWS, IS_MAC, IS_LINUX
 
 # 兼容旧导入：main.py 之前从这里取图标，现图标住在 ui/icons.py。
 __all__ = ["TrayManager", "get_app_icon"]
+
+# macOS 手动双击合成的判定间隔（毫秒）：第一次单击后这段时间内再
+# 单击一次算双击；到点没等到就弹菜单。与系统双击间隔同量级。
+_MAC_CLICK_MENU_DELAY_MS = 400
 
 
 class TrayManager(QObject):
@@ -40,6 +45,12 @@ class TrayManager(QObject):
         # 菜单里的热键文案以前写死（Alt+M/Q/W/Space），用户改了热键后
         # 菜单还显示旧的；现在跟配置走，配置变了就刷新（2026-10-28 review 小问题）。
         self._hotkeys = normalize_hotkeys(hotkeys)
+        # macOS 双击合成用的计时器（见 _on_tray_activated）；其他平台不用。
+        self._click_timer = None
+        if IS_MAC:
+            self._click_timer = QTimer(self)
+            self._click_timer.setSingleShot(True)
+            self._click_timer.timeout.connect(self._show_tray_menu)
         self._build_menu()
         self._refresh_status()
         self.tray_icon.activated.connect(self._on_tray_activated)
@@ -90,7 +101,13 @@ class TrayManager(QObject):
         act_exit = menu.addAction("退出应用")
         act_exit.triggered.connect(self.exit_requested.emit)
 
-        self.tray_icon.setContextMenu(menu)
+        self._menu = menu
+        if not IS_MAC:
+            self.tray_icon.setContextMenu(menu)
+        # macOS 不挂原生上下文菜单：挂上后单击被系统直接拿去弹菜单，
+        # activated 信号根本不投递，双击更无从谈起（用户实测“双击
+        # 打开设置”在 Mac 上无效）。Mac 上改由 _on_tray_activated
+        # 手动弹菜单 + 合成双击。
 
     def set_hotkeys(self, hotkeys):
         """配置里的热键变了，刷新菜单文案（不重建菜单）。"""
@@ -138,7 +155,41 @@ class TrayManager(QObject):
         self._refresh_status()
         self.toggle_triple_space_requested.emit(self.enabled)
 
+    def _show_tray_menu(self):
+        geo = self.tray_icon.geometry()
+        if geo.isValid() and not geo.isEmpty():
+            self._menu.popup(geo.bottomLeft())
+        else:
+            self._menu.popup(QCursor.pos())
+
     def _on_tray_activated(self, reason):
-        # 双击托盘图标，默认打开设置页面
+        # 双击托盘图标打开设置：Windows/Linux 由系统直接投递
+        # DoubleClick。macOS 不投递 DoubleClick（菜单栏图标的单击
+        # 只弹菜单），在 Mac 上手动合成：第一次单击只起计时，间隔
+        # 内再来一次算双击开设置，到点没等到就弹菜单——单击菜单
+        # 因此慢一个双击间隔，这是同类托盘应用的通行取舍。
         if reason == QSystemTrayIcon.DoubleClick:
+            if self._click_timer is not None:
+                self._click_timer.stop()
             self.open_settings_requested.emit()
+            return
+        if not IS_MAC:
+            return
+        if reason == QSystemTrayIcon.Context:
+            self._show_tray_menu()
+            return
+        if reason != QSystemTrayIcon.Trigger:
+            return
+        if self._menu.isVisible():
+            # 菜单开着时再点图标 = 关菜单（贴近原生切换行为），
+            # 这次点击不算进双击合成。
+            self._menu.close()
+            if self._click_timer is not None:
+                self._click_timer.stop()
+            return
+        if self._click_timer is not None and self._click_timer.isActive():
+            self._click_timer.stop()
+            self.open_settings_requested.emit()
+            return
+        if self._click_timer is not None:
+            self._click_timer.start(_MAC_CLICK_MENU_DELAY_MS)
