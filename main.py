@@ -54,7 +54,7 @@ from core.autostart import is_autostart_enabled, set_autostart_enabled
 from core.version import get_channel, get_version
 _stage("import-replacer-done")
 from core.hook import GlobalKeyboardHook, hook_self_check
-from core.hook_macos import MacKeyboardHook, post_cmd_key
+from core.hook_macos import MacKeyboardHook, post_cmd_key, is_accessibility_trusted
 from core.replacer_macos import MacReplacer
 from core.hook_linux import LinuxKeyboardHook, xtest_ctrl_key, open_display
 from core.replacer_linux import LinuxReplacer
@@ -298,16 +298,24 @@ class AppCoordinator(QObject):
         if IS_MAC:
             # macOS：合成事件是 Cmd 系，与 Option 触发键不冲突，无需等修饰键松开；
             # 剪贴板无序号，改用“先清空再等非空”判断复制成功（避免旧剪贴板冒充）。
+            # 全程打日志：此前只有成功才记一行，失败时控制台一片空白，
+            # 看日志无从分辨是授权、投递还是剪贴板坏了（用户实测反馈）。
+            trusted = is_accessibility_trusted()
+            _log_info("APP", f"[SELECTION] mac capture start, accessibility_trusted={trusted}")
             captured = ""
             for attempt in (1, 2):
                 if attempt == 2:
                     time.sleep(0.1)
                 try:
                     pyperclip.copy("")
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_error("APP", f"[SELECTION] clipboard clear failed: {e}")
                 time.sleep(0.02)
-                post_cmd_key("C")
+                try:
+                    post_ok = post_cmd_key("C")
+                except Exception as e:
+                    post_ok = False
+                    _log_error("APP", f"[SELECTION] post Cmd+C raised: {e}")
                 start = time.time()
                 while time.time() - start < 0.8:
                     try:
@@ -318,12 +326,14 @@ class AppCoordinator(QObject):
                         captured = text
                         break
                     time.sleep(0.02)
+                _log_info("APP", f"[SELECTION] attempt {attempt}: post_ok={post_ok}, clipboard={len(captured)} chars")
                 if captured:
                     break
             if captured:
                 _log_info("APP", f"[SELECTION] Captured: {len(captured)} chars")
                 self.selection_translate_signal.emit(captured)
             else:
+                _log_error("APP", f"[SELECTION] mac capture failed, accessibility_trusted={trusted}")
                 self.notify_signal.emit("failed", "未检测到鼠标选中文本")
             return
         if IS_LINUX:
@@ -366,6 +376,7 @@ class AppCoordinator(QObject):
                 _log_info("APP", f"[SELECTION] Captured: {len(captured)} chars")
                 self.selection_translate_signal.emit(captured)
             else:
+                _log_error("APP", "[SELECTION] linux capture failed: clipboard still empty")
                 self.notify_signal.emit("failed", "未检测到鼠标选中文本")
             return
         if not IS_WINDOWS:

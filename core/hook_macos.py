@@ -267,7 +267,11 @@ class MacKeyboardHook:
                 "勾选了，请先用 − 删除、再用 + 重新添加（应用更新后二进制"
                 "变化，旧授权会失效），然后重启应用。"
             )
-            _log_error("HOOK", f"mac CGEventTapCreate failed: {self.last_error}")
+            _log_error(
+                "HOOK",
+                f"mac CGEventTapCreate failed: {self.last_error} "
+                f"(accessibility_trusted={is_accessibility_trusted()})",
+            )
             self._callback_ref = None
             return False
         self._tap = tap
@@ -367,13 +371,39 @@ def _cg_lib():
     return lib
 
 
+def is_accessibility_trusted():
+    """当前进程是否被系统信任为辅助功能（AXIsProcessTrusted）。
+
+    事件抽头与合成事件投递都受这个信任状态管辖：未信任时系统静默
+    丢弃合成事件，抽头也建不起来。用它能把"授权没绑到当前二进制"
+    和其他失败分开。返回 True/False；框架不可用时返回 None（未知）。
+    签名纪律：无参数、返回 Boolean，在本函数自己 load 的句柄上声明。
+    """
+    lib = _load_lib("ApplicationServices")
+    if lib is None:
+        return None
+    try:
+        lib.AXIsProcessTrusted.argtypes = []
+        lib.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(lib.AXIsProcessTrusted())
+    except Exception:
+        return None
+
+
 def post_key(keycode: int, flags: int = 0, delay: float = 0.02):
-    """合成一次按键（按下 + 抬起），flags 显式指定，与物理修饰键无关。"""
+    """合成一次按键（按下 + 抬起），flags 显式指定，与物理修饰键无关。
+
+    返回 True 仅当按下与抬起两个事件都成功创建并投递；事件创建
+    失败（NULL）返回 False——此前是静默 continue，调用方无从判断
+    合成键到底发出去没有。
+    """
     lib = _cg_lib()
     cf = _cf_lib()
+    ok = True
     for down in (True, False):
         ev = lib.CGEventCreateKeyboardEvent(None, keycode, down)
         if not ev:
+            ok = False
             continue
         if flags:
             lib.CGEventSetFlags(ev, flags)
@@ -381,6 +411,7 @@ def post_key(keycode: int, flags: int = 0, delay: float = 0.02):
         if cf is not None:
             cf.CFRelease(ev)
         time.sleep(delay)
+    return ok
 
 
 def post_cmd_key(name: str):
@@ -388,7 +419,7 @@ def post_cmd_key(name: str):
     keycode = _NAME_TO_MAC_KEYCODE.get(name)
     if keycode is None:
         raise ValueError(f"unknown key name for Cmd combo: {name}")
-    post_key(keycode, flags=kCGEventFlagMaskCommand)
+    return post_key(keycode, flags=kCGEventFlagMaskCommand)
 
 
 def post_shift_cmd_left():
