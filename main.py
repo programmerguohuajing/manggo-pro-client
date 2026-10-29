@@ -61,6 +61,18 @@ from core.replacer_linux import LinuxReplacer
 _stage("import-hook-done")
 from core.logging import error as _log_error, info as _log_info
 _stage("import-logging-done")
+
+if IS_MAC:
+    # 1.0.33：Mac 剪贴板改走 NSPasteboard。从 Finder 打开的 .app 没有
+    # LANG，pyperclip 默认的 pbcopy/pbpaste 读中文得到空、写中文变乱码——
+    # 三次空格、划选翻译“复制成功却抓到 0 字”的真正原因（见
+    # core/clipboard_macos.py）。LANG 兜底给仍可能用到 pb* 的路径。
+    if "UTF-8" not in (os.environ.get("LC_ALL", "") + os.environ.get("LC_CTYPE", "") + os.environ.get("LANG", "")).upper():
+        os.environ["LANG"] = "en_US.UTF-8"
+        os.environ["LC_CTYPE"] = "en_US.UTF-8"
+    from core.clipboard_macos import install as _install_mac_clipboard
+    _install_mac_clipboard(log=lambda m: _log_info("APP", m))
+    _stage("mac-clipboard-done")
 from core.ocr import ocr_engine
 _stage("import-ocr-done")
 from core.database import db
