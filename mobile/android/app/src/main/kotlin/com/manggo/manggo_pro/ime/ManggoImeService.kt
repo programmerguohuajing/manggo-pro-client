@@ -37,6 +37,12 @@ class ManggoImeService : InputMethodService() {
 
     override fun onCreateInputView(): View = buildKeyboard()
 
+    /**
+     * 有实体键盘（模拟器、平板键盘、外接键盘）时，基类会返回 false 从而**完全不显示**
+     * 输入法界面。翻译键盘在这类设备上同样需要，所以固定为 true。
+     */
+    override fun onEvaluateInputViewShown(): Boolean = true
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         spaceTaps = 0
