@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:manggo_pro/app_theme.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -7,6 +8,20 @@ class SettingsScreen extends StatelessWidget {
 
   const SettingsScreen(
       {super.key, required this.dark, required this.onToggleDark});
+
+  /// 与 Android 端 MainActivity 里的 MethodChannel 对应
+  static const MethodChannel _imeChannel = MethodChannel('manggo/ime');
+
+  /// 跳到系统输入法管理页，让用户启用并切到 Manggo 翻译输入法
+  Future<void> _openImeSettings() async {
+    try {
+      await _imeChannel.invokeMethod<bool>('openImeSettings');
+    } on MissingPluginException {
+      // iOS / HarmonyOS 需各自实现（键盘扩展 / InputMethodExtensionAbility）
+    } on PlatformException {
+      // 通道存在但调用失败，忽略即可，不打断用户
+    }
+  }
 
   Widget _row({
     required String title,
@@ -80,6 +95,12 @@ class SettingsScreen extends StatelessWidget {
                     title: '默认翻译语言',
                     subtitle: '中文 → 英语',
                     trailing: const Icon(Icons.chevron_right_rounded)),
+                _row(
+                  title: 'Manggo 输入法',
+                  subtitle: '连按三次空格，任意 App 里翻译并替换整行',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _openImeSettings,
+                ),
                 _row(
                     title: '关于 Manggo Pro',
                     trailing: const Icon(Icons.chevron_right_rounded)),
