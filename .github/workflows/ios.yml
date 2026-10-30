@@ -118,7 +118,9 @@ jobs:
           VERSION_NAME="$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' pubspec.yaml | head -1)"
           [ -n "$VERSION_NAME" ] || VERSION_NAME="0.0.0"
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "版本名：$VERSION_NAME，构建号：$GITHUB_RUN_NUMBER"
+          # 注意：macOS runner 上是 bash 3.2，非 ASCII 字符紧跟 $VAR 时会被当成变量名的一部分
+          # （报 unbound variable），所以中文前后一律用 ${VAR} 包起来
+          echo "version: ${VERSION_NAME}, build: ${GITHUB_RUN_NUMBER}"
 
       - name: Pod install (only if Podfile exists)
         working-directory: ${{ env.APP_DIR }}/ios
