@@ -18,6 +18,26 @@ App 内「设置 → 检查更新」可以直接下载并安装新版本。核�
    - tag 固定为 `android-latest`，每次先删再建（覆盖式，不会堆积几百个 tag）
    - 资产包含 APK 与 `version.json`
 
+3. **签名必须稳定，否则更新根本装不上**
+   `android/app/build.gradle.kts` 的规则是「有 `android/key.properties` 就用正式签名，否则回退 debug 签名」。
+   CI 上如果没有配置密钥，Gradle 会在 runner 里**现场生成一个全新的 debug keystore**——
+   每个 runner 每次构建的密钥都不一样，包自然签名不同。结果就是：
+   App 能检查到新版本、能下载完、也能拉起安装器，但系统会拒绝：
+
+   ```
+   INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package … signatures do not match newer version
+   ```
+
+   低版本号的覆盖安装测不出这个问题（同一个 APK 自己装自己当然通过），
+   必须用**两个不同构建**出来的包才能暴露。
+
+   解决：把 keystore 固化到仓库 Secrets（`ANDROID_KEYSTORE_BASE64` +
+   `ANDROID_STORE_PASSWORD` + `ANDROID_KEY_PASSWORD` + `ANDROID_KEY_ALIAS`），
+   workflow 里的 `Configure release signing` 步骤会自动还原成 `android/app/upload-keystore.jks` 并写 `key.properties`。
+   本地若要产出可覆盖 CI 包的 APK，把同一份 keystore 放到 `android/app/` 并写同名 `key.properties` 即可（两者都被 .gitignore 忽略）。
+
+   > 换签名等于换应用：已经装了旧 debug 签名包的用户必须**卸载重装**一次，之后才能正常收到在线更新。
+
 `version.json` 结构：
 
 ```json
