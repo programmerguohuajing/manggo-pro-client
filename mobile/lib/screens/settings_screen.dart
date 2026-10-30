@@ -4,6 +4,8 @@ import 'package:manggo_pro/models/language.dart';
 import 'package:manggo_pro/screens/language_select_screen.dart';
 import 'package:manggo_pro/services/app_settings.dart';
 import 'package:manggo_pro/services/platform_service.dart';
+import 'package:manggo_pro/services/update_service.dart';
+import 'package:manggo_pro/widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   final bool dark;
@@ -23,6 +25,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 默认翻译语言对
   Language _from = Language.zh;
   Language _to = Language.en;
+
+  /// 当前安装包版本（从原生侧读取，避免和 pubspec 写死的数字不一致）
+  int _verCode = 0;
+  String _verName = '';
+  bool _checkingUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    PlatformService.appVersion().then((v) {
+      if (v == null || !mounted) return;
+      setState(() {
+        _verCode = v.code;
+        _verName = v.name;
+      });
+    });
+  }
+
+  /// 检查在线更新。国内网络下会并发尝试多个加速镜像，具体逻辑在 UpdateService。
+  Future<void> _checkUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    final check = await UpdateService.check();
+    if (!mounted) return;
+    setState(() => _checkingUpdate = false);
+
+    if (check.failed) {
+      _toast(check.error!);
+      return;
+    }
+    if (!check.hasUpdate) {
+      _toast('已是最新版本 ${check.currentName} (${check.currentCode})');
+      return;
+    }
+    final done = await showDialog<bool>(
+      context: context,
+      builder: (_) => UpdateDialog(check: check),
+    );
+    if (done == true) {
+      // 安装器已经拉起，用户确认后系统会覆盖安装
+      if (mounted) setState(() {});
+    }
+  }
 
   void _toast(String message) {
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -59,20 +104,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAbout() {
+    final version = _verName.isEmpty
+        ? '版本未知'
+        : '版本 $_verName${_verCode > 0 ? ' ($_verCode)' : ''}';
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('关于 Manggo Pro'),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 1.0.0'),
-            SizedBox(height: 8),
-            Text('文本翻译 · 拍照取词 · 生词本 · 翻译输入法',
+            Text(version),
+            const SizedBox(height: 8),
+            const Text('文本翻译 · 拍照取词 · 生词本 · 翻译输入法',
                 style: TextStyle(fontSize: 13, color: Color(0xFF8A9099))),
-            SizedBox(height: 8),
-            Text('连按三次空格即可在任意 App 内翻译并替换当前行',
+            const SizedBox(height: 8),
+            const Text('连按三次空格即可在任意 App 内翻译并替换当前行',
                 style: TextStyle(fontSize: 13, color: Color(0xFF8A9099))),
           ],
         ),
@@ -179,6 +227,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: '连按三次空格，任意 App 里翻译并替换整行',
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: _openImeSettings,
+                ),
+                _row(
+                  title: '检查更新',
+                  subtitle: _checkingUpdate
+                      ? '正在检查，国内网络会自动尝试加速镜像…'
+                      : (_verCode > 0
+                          ? '当前版本 $_verName ($_verCode)'
+                          : '在线获取最新版本'),
+                  trailing: _checkingUpdate
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Manggo.primary),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                  onTap: _checkingUpdate ? null : _checkUpdate,
                 ),
                 _row(
                   title: '关于 Manggo Pro',

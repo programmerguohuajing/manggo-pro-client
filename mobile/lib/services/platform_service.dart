@@ -29,6 +29,55 @@ class PlatformService {
   /// 直接弹出输入法切换面板
   static Future<bool> showImePicker() => _invoke('showImePicker', const {});
 
+  // ---------------- 在线更新 ----------------
+
+  /// 当前安装包版本。返回 (versionCode, versionName)，取不到时返回 null。
+  static Future<({int code, String name})?> appVersion() async {
+    try {
+      final map = await _channel
+          .invokeMapMethod<String, dynamic>('appVersion', const {});
+      if (map == null) return null;
+      return (
+        code: (map['versionCode'] as num?)?.toInt() ?? 0,
+        name: map['versionName'] as String? ?? '',
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// 计算文件 SHA-256（原生流式计算，避免把几十 MB 读进内存）
+  static Future<String?> sha256(String path) async {
+    try {
+      return await _channel.invokeMethod<String>('sha256', {'path': path});
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// 是否已允许「安装未知应用」
+  static Future<bool> canInstallPackages() =>
+      _invoke('canInstallPackages', const {});
+
+  /// 跳系统设置让用户授权安装未知应用
+  static Future<bool> openInstallPermission() =>
+      _invoke('openInstallPermission', const {});
+
+  /// 拉起系统安装器。返回 'ok' / 'need_permission' / null(失败)
+  static Future<String?> installApk(String path) async {
+    try {
+      return await _channel.invokeMethod<String>('installApk', {'path': path});
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   static Future<bool> _invoke(String method, Map<String, dynamic> args) async {
     try {
       final ok = await _channel.invokeMethod<bool>(method, args);

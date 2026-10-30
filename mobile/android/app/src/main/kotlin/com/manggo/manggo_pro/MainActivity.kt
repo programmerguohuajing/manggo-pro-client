@@ -1,13 +1,18 @@
 package com.manggo.manggo_pro
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.view.inputmethod.InputMethodManager
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.security.MessageDigest
 import java.util.Locale
 
 class MainActivity : FlutterActivity() {
@@ -15,6 +20,23 @@ class MainActivity : FlutterActivity() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var pendingSpeak: Pair<String, String>? = null
+
+    /** 安装包哈希要读整个文件（几十 MB），不能占主线程 */
+    private val ioExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    /** 流式计算 SHA-256，避免把整个 APK 读进内存 */
+    private fun sha256Of(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -78,12 +100,84 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+            // ---- 在线更新 ----
+
+            "appVersion" -> {
+                val info = packageManager.getPackageInfo(packageName, 0)
+                val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    info.longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    info.versionCode
+                }
+                result.success(mapOf(
+                    "versionCode" to code,
+                    "versionName" to (info.versionName ?: ""),
+                ))
+            }
+
+            "sha256" -> {
+                val path = call.argument<String>("path").orEmpty()
+                ioExecutor.execute {
+                    val digest = runCatching { sha256Of(File(path)) }.getOrNull()
+                    runOnUiThread { result.success(digest) }
+                }
+            }
+
+            "canInstallPackages" -> {
+                val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    packageManager.canRequestPackageInstalls()
+                } else {
+                    true
+                }
+                result.success(ok)
+            }
+
+            "openInstallPermission" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startActivity(
+                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                }
+                result.success(true)
+            }
+
+            "installApk" -> {
+                val path = call.argument<String>("path").orEmpty()
+                val file = File(path)
+                if (!file.exists() || file.length() == 0L) {
+                    result.error("NO_FILE", "安装包不存在或为空", null)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    !packageManager.canRequestPackageInstalls()
+                ) {
+                    // 未授予「安装未知应用」权限，安装器会被系统拦掉
+                    result.success("need_permission")
+                } else {
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            this, "$packageName.fileprovider", file
+                        )
+                        startActivity(
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(
+                                    uri, "application/vnd.android.package-archive"
+                                )
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                        )
+                    }.fold(
+                        onSuccess = { result.success("ok") },
+                        onFailure = { result.error("INSTALL_FAILED", it.message, null) }
+                    )
+                }
+            }
+
             else -> result.notImplemented()
         }
     }
 
-    private fun ensureTts() {
-        if (tts != null) return
+    private fun ensureTts() {        if (tts != null) return
         tts = TextToSpeech(applicationContext) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
             val pending = pendingSpeak
@@ -106,6 +200,7 @@ class MainActivity : FlutterActivity() {
         tts?.shutdown()
         tts = null
         ttsReady = false
+        ioExecutor.shutdownNow()
         super.onDestroy()
     }
 

@@ -34,7 +34,7 @@ on:
       - '.github/workflows/android.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
@@ -105,6 +105,15 @@ jobs:
           EOF
           echo "已配置正式签名（alias=$KEY_ALIAS）"
 
+      # versionCode 用 run_number，保证每次构建都单调递增。
+      # 否则 pubspec 里固定 +1，App 端永远判定为「已是最新」，在线更新形同虚设。
+      - name: Bump versionCode for online update
+        if: github.event_name == 'push'
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          sed -i -E "s/^version: ([0-9]+\.[0-9]+\.[0-9]+)\+[0-9]+/version: \1+${{ github.run_number }}/" pubspec.yaml
+          grep '^version:' pubspec.yaml
+
       - name: Build APK
         if: github.event_name != 'workflow_dispatch' || inputs.build_type == 'apk' || inputs.build_type == 'both'
         working-directory: ${{ env.APP_DIR }}
@@ -134,3 +143,41 @@ jobs:
           path: ${{ env.APP_DIR }}/dist/*
           retention-days: 14
           if-no-files-found: error
+
+      # 滚动发布：固定 tag android-latest，每次覆盖。
+      # App 端先取 version.json，再按镜像前缀拼 APK 直链下载。
+      - name: Publish rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          VER_NAME=${VERSION%%+*}
+          VER_CODE=${VERSION##*+}
+          APK=$(ls dist/*.apk | head -1)
+          APK_NAME=$(basename "$APK")
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          SIZE=$(stat -c%s "$APK")
+          STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          cat > dist/version.json <<JSON
+          {
+            "versionName": "${VER_NAME}",
+            "versionCode": ${VER_CODE},
+            "minVersionCode": 1,
+            "apkName": "${APK_NAME}",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/android-latest/${APK_NAME}",
+            "size": ${SIZE},
+            "sha256": "${SHA}",
+            "publishedAt": "${STAMP}",
+            "notes": "构建 #${VER_CODE} · 提交 ${GITHUB_SHA:0:7}"
+          }
+          JSON
+
+          cat dist/version.json
+          gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-latest dist/*.apk dist/version.json \
+            --title "Android 最新构建 ${VER_NAME} (${VER_CODE})" \
+            --notes "自动构建于 ${STAMP}，提交 ${GITHUB_SHA:0:7}。App 内「设置 → 检查更新」可直接升级。"
