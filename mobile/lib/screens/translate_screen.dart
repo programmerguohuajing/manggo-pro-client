@@ -97,7 +97,10 @@ class _TranslateScreenState extends State<TranslateScreen> {
 
   void _pick(bool isSource) async {
     final chosen = await Navigator.of(context).push<Language>(
-      MaterialPageRoute(builder: (_) => const LanguageSelectScreen()),
+      MaterialPageRoute(
+        builder: (_) =>
+            LanguageSelectScreen(current: isSource ? _src.code : _dst.code),
+      ),
     );
     if (chosen != null) {
       setState(() => isSource ? _src = chosen : _dst = chosen);

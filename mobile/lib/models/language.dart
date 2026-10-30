@@ -16,4 +16,7 @@ class Language {
 
   static const List<Language> common = [zh, en, ja, ko];
   static const List<Language> others = [fr, de, es, ru];
+
+  /// 全量列表，供搜索与过滤使用
+  static const List<Language> all = [...common, ...others];
 }
