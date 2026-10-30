@@ -22,9 +22,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
   String _mirror = '';
   String? _error;
 
+  /// 已下好的安装包路径。授权「安装未知应用」后点重试时会复用它，
+  /// 不再把几十 MB 重新下一遍。
+  String? _localPath;
+
   UpdateInfo get _info => widget.check.info!;
 
   Future<void> _start() async {
+    // 之前已经下载完（比如卡在权限那一步），直接重试安装
+    if (_localPath != null) {
+      await _install(_localPath!);
+      return;
+    }
+
     setState(() {
       _downloading = true;
       _error = null;
@@ -52,13 +62,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
       return;
     }
 
-    final res = await PlatformService.installApk(r.path!);
+    _localPath = r.path;
+    setState(() => _downloading = false);
+    await _install(r.path!);
+  }
+
+  Future<void> _install(String path) async {
+    final res = await PlatformService.installApk(path);
     if (!mounted) return;
 
     if (res == 'need_permission') {
       setState(() {
         _downloading = false;
-        _error = '需要允许「安装未知应用」才能完成升级';
+        _error = '需要允许「安装未知应用」才能完成升级（安装包已下载，授权后点重试即可）';
       });
       await PlatformService.openInstallPermission();
       return;
@@ -66,7 +82,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
     if (res != 'ok') {
       setState(() {
         _downloading = false;
-        _error = '已下载完成，但无法拉起系统安装器';
+        _error = res != null && res.startsWith('err:')
+            ? '无法拉起安装器：${res.substring(4)}'
+            : '已下载完成，但无法拉起系统安装器';
       });
       return;
     }

@@ -145,18 +145,25 @@ class MainActivity : FlutterActivity() {
 
             "installApk" -> {
                 val path = call.argument<String>("path").orEmpty()
-                val file = File(path)
-                if (!file.exists() || file.length() == 0L) {
-                    result.error("NO_FILE", "安装包不存在或为空", null)
+                val src = File(path)
+                if (!src.exists() || src.length() == 0L) {
+                    result.error("NO_FILE", "安装包不存在或为空：$path", null)
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     !packageManager.canRequestPackageInstalls()
                 ) {
                     // 未授予「安装未知应用」权限，安装器会被系统拦掉
                     result.success("need_permission")
                 } else {
-                    runCatching {
+                    try {
+                        // 统一复制到 FileProvider 明确声明过的 cacheDir/updates/。
+                        // Dart 侧用的 Directory.systemTemp 不保证等于 cacheDir，
+                        // 路径对不上时 getUriForFile 会直接抛 IllegalArgumentException。
+                        val dir = File(cacheDir, "updates").apply { mkdirs() }
+                        val dst = File(dir, "update.apk")
+                        src.copyTo(dst, overwrite = true)
+
                         val uri = FileProvider.getUriForFile(
-                            this, "$packageName.fileprovider", file
+                            this, "$packageName.fileprovider", dst
                         )
                         startActivity(
                             Intent(Intent.ACTION_VIEW).apply {
@@ -166,10 +173,10 @@ class MainActivity : FlutterActivity() {
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                         )
-                    }.fold(
-                        onSuccess = { result.success("ok") },
-                        onFailure = { result.error("INSTALL_FAILED", it.message, null) }
-                    )
+                        result.success("ok")
+                    } catch (e: Exception) {
+                        result.success("err:${e.javaClass.simpleName}: ${e.message}")
+                    }
                 }
             }
 
