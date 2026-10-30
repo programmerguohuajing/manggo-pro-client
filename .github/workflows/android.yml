@@ -1,0 +1,136 @@
+name: Android Build
+
+# Android 是三端里在 GitHub 托管 runner 上最省事的一环：
+# ubuntu-latest 预装 Android SDK，加一个 JDK 17 就能出 APK / AAB。
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: '产物类型'
+        type: choice
+        default: apk
+        options:
+          - apk
+          - appbundle
+          - both
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'mobile/lib/**'
+      - 'mobile/android/**'
+      - 'mobile/test/**'
+      - 'mobile/pubspec.yaml'
+      - 'mobile/pubspec.lock'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'mobile/lib/**'
+      - 'mobile/android/**'
+      - 'mobile/pubspec.yaml'
+      - 'mobile/pubspec.lock'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.9'
+  APP_DIR: mobile
+  # 海外 runner 走官方 maven 源更快，关掉阿里云镜像
+  GRADLE_MIRROR: 'off'
+
+jobs:
+  build:
+    name: Build Android package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Toolchain info
+        run: |
+          java -version
+          flutter --version
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Point Gradle wrapper to official distribution
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          # 仓库里的 wrapper 指向腾讯云镜像（给国内本地构建用），海外 runner 改回官方源
+          sed -i 's#mirrors\.cloud\.tencent\.com/gradle/#services.gradle.org/distributions/#' android/gradle/wrapper/gradle-wrapper.properties
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Configure release signing (optional)
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::notice title=使用 debug 签名::未配置 ANDROID_KEYSTORE_BASE64，release 包用 debug key 签名（可安装，不可上架）"
+            exit 0
+          fi
+          printf '%s' "$KS_B64" | openssl base64 -d -A -out android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$KS_PASS
+          keyPassword=$KEY_PASS
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+          echo "已配置正式签名（alias=$KEY_ALIAS）"
+
+      - name: Build APK
+        if: github.event_name != 'workflow_dispatch' || inputs.build_type == 'apk' || inputs.build_type == 'both'
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build apk --release
+
+      - name: Build AAB
+        if: github.event_name == 'workflow_dispatch' && (inputs.build_type == 'appbundle' || inputs.build_type == 'both')
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build appbundle --release
+
+      - name: Collect artifacts
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr '+' '-')
+          mkdir -p dist
+          for f in build/app/outputs/flutter-apk/*.apk; do
+            if [ -f "$f" ]; then cp "$f" "dist/ManggoPro-${VERSION}-$(basename "$f")"; fi
+          done
+          for f in build/app/outputs/bundle/release/*.aab; do
+            if [ -f "$f" ]; then cp "$f" "dist/ManggoPro-${VERSION}-$(basename "$f")"; fi
+          done
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-packages
+          path: ${{ env.APP_DIR }}/dist/*
+          retention-days: 14
+          if-no-files-found: error
