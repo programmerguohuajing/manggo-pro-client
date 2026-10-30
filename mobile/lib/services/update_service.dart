@@ -145,8 +145,13 @@ class UpdateService {
     final completer = Completer<({UpdateInfo info, String mirror})?>();
     var pending = mirrors.length;
 
+    // 必须带 cache buster：加速镜像普遍会缓存 version.json（实测加上
+    // Cache-Control: no-cache 请求头无效，镜像直接忽略），不加的话发版后
+    // 很长一段时间仍会读到旧版本号，用户永远收不到更新。
+    final bust = DateTime.now().millisecondsSinceEpoch;
+
     for (final prefix in mirrors) {
-      _fetchJson(proxied(versionUrl, prefix))
+      _fetchJson('${proxied(versionUrl, prefix)}?t=$bust')
           .then((info) {
             if (info != null && !completer.isCompleted) {
               _preferred = prefix;
