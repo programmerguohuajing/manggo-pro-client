@@ -47,48 +47,46 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('设置',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 14),
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                border: Border.all(color: Theme.of(context).dividerColor),
-                borderRadius: BorderRadius.circular(Manggo.radiusMd),
-              ),
-              child: Column(
-                children: [
-                  _row(
-                    title: '深色外观',
-                    subtitle: '跟随系统或手动开启',
-                    trailing: Switch(
-                      value: dark,
-                      activeColor: Manggo.primary,
-                      onChanged: onToggleDark,
-                    ),
-                  ),
-                  _row(
-                      title: '语音播报',
-                      trailing: const Icon(Icons.chevron_right_rounded)),
-                  _row(
-                      title: '默认翻译语言',
-                      subtitle: '中文 → 英语',
-                      trailing: const Icon(Icons.chevron_right_rounded)),
-                  _row(
-                      title: '关于 Manggo Pro',
-                      trailing: const Icon(Icons.chevron_right_rounded)),
-                ],
-              ),
+    final topInset = MediaQuery.of(context).padding.top;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(16, 16 + topInset, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('设置',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 14),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(Manggo.radiusMd),
             ),
-          ],
-        ),
+            child: Column(
+              children: [
+                _row(
+                  title: '深色外观',
+                  subtitle: '跟随系统或手动开启',
+                  trailing: Switch(
+                    value: dark,
+                    activeColor: Manggo.primary,
+                    onChanged: onToggleDark,
+                  ),
+                ),
+                _row(
+                    title: '语音播报',
+                    trailing: const Icon(Icons.chevron_right_rounded)),
+                _row(
+                    title: '默认翻译语言',
+                    subtitle: '中文 → 英语',
+                    trailing: const Icon(Icons.chevron_right_rounded)),
+                _row(
+                    title: '关于 Manggo Pro',
+                    trailing: const Icon(Icons.chevron_right_rounded)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

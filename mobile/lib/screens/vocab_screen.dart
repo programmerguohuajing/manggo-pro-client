@@ -13,22 +13,20 @@ class VocabScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('生词本',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            const Text('长按可删除 · 点击可加入复习',
-                style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
-            const SizedBox(height: 14),
-            ..._words.map((w) => _item(context, w)),
-          ],
-        ),
+    final topInset = MediaQuery.of(context).padding.top;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(16, 16 + topInset, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('生词本',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          const Text('长按可删除 · 点击可加入复习',
+              style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
+          const SizedBox(height: 14),
+          ..._words.map((w) => _item(context, w)),
+        ],
       ),
     );
   }

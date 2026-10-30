@@ -93,129 +93,127 @@ class _TranslateScreenState extends State<TranslateScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SafeArea(
-      bottom: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 顶部标题栏
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('翻译',
-                    style:
-                        TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
-                Row(
-                  children: [
-                    _topAction(Icons.mic_none_rounded),
-                    _topAction(Icons.camera_alt_outlined),
-                    _topAction(Icons.more_horiz_rounded),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // 语言选择条 + 交换
-            Row(
-              children: [
-                LanguageChip(label: _src.name, onTap: () => _pick(true)),
-                const SizedBox(width: 8),
-                InkWell(
-                  onTap: _swap,
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
+    // 顶部留出状态栏高度，内容可从状态栏下方滚过，由全局渐隐遮罩收边
+    final topInset = MediaQuery.of(context).padding.top;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(16, 8 + topInset, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 顶部标题栏
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('翻译',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+              Row(
+                children: [
+                  _topAction(Icons.mic_none_rounded),
+                  _topAction(Icons.camera_alt_outlined),
+                  _topAction(Icons.more_horiz_rounded),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 语言选择条 + 交换
+          Row(
+            children: [
+              LanguageChip(label: _src.name, onTap: () => _pick(true)),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: _swap,
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF0E2419)
+                        : const Color(0xFFEAFBF0),
+                    border: Border.all(
                       color: isDark
-                          ? const Color(0xFF0E2419)
-                          : const Color(0xFFEAFBF0),
-                      border: Border.all(
-                        color: isDark
-                            ? const Color(0x1AFFFFFF)
-                            : const Color(0x14000000),
-                      ),
-                      shape: BoxShape.circle,
+                          ? const Color(0x1AFFFFFF)
+                          : const Color(0x14000000),
                     ),
-                    child: const Icon(Icons.swap_vert_rounded,
-                        color: Manggo.primary),
+                    shape: BoxShape.circle,
                   ),
+                  child: const Icon(Icons.swap_vert_rounded,
+                      color: Manggo.primary),
                 ),
-                const SizedBox(width: 8),
-                LanguageChip(label: _dst.name, onTap: () => _pick(false)),
-              ],
-            ),
-            const SizedBox(height: 14),
-            // 双卡片 + 居中 FAB
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Column(
-                  children: [
-                    TranslateCard(
-                      header: '源语言 · ${_src.name}',
-                      text: '',
-                      editable: true,
-                      controller: _srcController,
-                    ),
-                    const SizedBox(height: 36),
-                    TranslateCard(
-                      header: '译文 · ${_dst.name}',
-                      text: _translating ? '翻译中…' : _dstText,
-                    ),
-                  ],
-                ),
-                Positioned(
-                  top: 78,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: _translate,
-                      child: Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          gradient: Manggo.fabGradient,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(.25),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: _translating
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.translate_rounded,
-                                color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 8),
+              LanguageChip(label: _dst.name, onTap: () => _pick(false)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // 双卡片 + 居中 FAB
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Column(
+                children: [
+                  TranslateCard(
+                    header: '源语言 · ${_src.name}',
+                    text: '',
+                    editable: true,
+                    controller: _srcController,
+                  ),
+                  const SizedBox(height: 36),
+                  TranslateCard(
+                    header: '译文 · ${_dst.name}',
+                    text: _translating ? '翻译中…' : _dstText,
+                  ),
+                ],
+              ),
+              Positioned(
+                top: 78,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: _translate,
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: Manggo.fabGradient,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(.25),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
+                      child: _translating
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.translate_rounded,
+                              color: Colors.white, size: 24),
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // 快捷操作
-            Row(
-              children: [
-                _quickBtn('复制', Icons.content_copy_outlined),
-                _quickBtn('语音', Icons.volume_up_outlined),
-                _quickBtn('收藏', Icons.star_border_rounded),
-                _quickBtn('分享', Icons.share_outlined),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // 快捷操作
+          Row(
+            children: [
+              _quickBtn('复制', Icons.content_copy_outlined),
+              _quickBtn('语音', Icons.volume_up_outlined),
+              _quickBtn('收藏', Icons.star_border_rounded),
+              _quickBtn('分享', Icons.share_outlined),
+            ],
+          ),
+        ],
       ),
     );
   }
