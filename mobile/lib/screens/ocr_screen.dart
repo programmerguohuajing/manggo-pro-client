@@ -56,21 +56,35 @@ class OcrScreen extends StatelessWidget {
             left: 0,
             right: 0,
             child: Center(
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  border: Border.all(color: Manggo.accent, width: 4),
+              child: GestureDetector(
+                onTap: () => _toast(context, '相机能力待接入：iOS/Android 需授权后调用原生拍照'),
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    border: Border.all(color: Manggo.accent, width: 4),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded,
+                      size: 28, color: Colors.black87),
                 ),
-                child: const Icon(Icons.camera_alt_rounded,
-                    size: 28, color: Colors.black87),
               ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _toast(BuildContext context, String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(milliseconds: 1800),
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 }

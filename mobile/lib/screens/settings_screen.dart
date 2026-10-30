@@ -1,26 +1,89 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:manggo_pro/app_theme.dart';
+import 'package:manggo_pro/models/language.dart';
+import 'package:manggo_pro/screens/language_select_screen.dart';
+import 'package:manggo_pro/services/app_settings.dart';
+import 'package:manggo_pro/services/platform_service.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   final bool dark;
   final ValueChanged<bool> onToggleDark;
 
   const SettingsScreen(
       {super.key, required this.dark, required this.onToggleDark});
 
-  /// 与 Android 端 MainActivity 里的 MethodChannel 对应
-  static const MethodChannel _imeChannel = MethodChannel('manggo/ime');
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  /// 语音播报开关（真正决定播报按钮是否出声）
+  bool _speechOn = AppSettings.speechEnabled.value;
+
+  /// 默认翻译语言对
+  Language _from = Language.zh;
+  Language _to = Language.en;
+
+  void _toast(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(milliseconds: 1400),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
   /// 跳到系统输入法管理页，让用户启用并切到 Manggo 翻译输入法
   Future<void> _openImeSettings() async {
-    try {
-      await _imeChannel.invokeMethod<bool>('openImeSettings');
-    } on MissingPluginException {
-      // iOS / HarmonyOS 需各自实现（键盘扩展 / InputMethodExtensionAbility）
-    } on PlatformException {
-      // 通道存在但调用失败，忽略即可，不打断用户
-    }
+    final ok = await PlatformService.openImeSettings();
+    if (!ok) _toast('当前平台暂不支持，请到系统设置里手动开启键盘');
+  }
+
+  /// 选择默认翻译语言：先选源语言再选目标语言
+  Future<void> _pickDefaultLanguages() async {
+    final from = await Navigator.of(context).push<Language>(
+      MaterialPageRoute(builder: (_) => const LanguageSelectScreen()),
+    );
+    if (from == null || !mounted) return;
+    final to = await Navigator.of(context).push<Language>(
+      MaterialPageRoute(builder: (_) => const LanguageSelectScreen()),
+    );
+    if (to == null || !mounted) return;
+    setState(() {
+      _from = from;
+      _to = to;
+    });
+    _toast('默认语言已改为 ${from.name} → ${to.name}');
+  }
+
+  void _showAbout() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('关于 Manggo Pro'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('版本 1.0.0'),
+            SizedBox(height: 8),
+            Text('文本翻译 · 拍照取词 · 生词本 · 翻译输入法',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8A9099))),
+            SizedBox(height: 8),
+            Text('连按三次空格即可在任意 App 内翻译并替换当前行',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8A9099))),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _row({
@@ -83,18 +146,34 @@ class SettingsScreen extends StatelessWidget {
                   title: '深色外观',
                   subtitle: '跟随系统或手动开启',
                   trailing: Switch(
-                    value: dark,
+                    value: widget.dark,
                     activeColor: Manggo.primary,
-                    onChanged: onToggleDark,
+                    onChanged: widget.onToggleDark,
                   ),
                 ),
                 _row(
-                    title: '语音播报',
-                    trailing: const Icon(Icons.chevron_right_rounded)),
+                  title: '语音播报',
+                  subtitle: _speechOn ? '点击译文旁的喇叭即可朗读' : '已关闭，播报按钮不可用',
+                  trailing: Switch(
+                    value: _speechOn,
+                    activeColor: Manggo.primary,
+                    onChanged: (v) {
+                      setState(() => _speechOn = v);
+                      AppSettings.speechEnabled.value = v;
+                      if (v) {
+                        PlatformService.speak('Speech enabled', lang: 'en');
+                      } else {
+                        PlatformService.stopSpeak();
+                      }
+                    },
+                  ),
+                ),
                 _row(
-                    title: '默认翻译语言',
-                    subtitle: '中文 → 英语',
-                    trailing: const Icon(Icons.chevron_right_rounded)),
+                  title: '默认翻译语言',
+                  subtitle: '${_from.name} → ${_to.name}',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _pickDefaultLanguages,
+                ),
                 _row(
                   title: 'Manggo 输入法',
                   subtitle: '连按三次空格，任意 App 里翻译并替换整行',
@@ -102,8 +181,10 @@ class SettingsScreen extends StatelessWidget {
                   onTap: _openImeSettings,
                 ),
                 _row(
-                    title: '关于 Manggo Pro',
-                    trailing: const Icon(Icons.chevron_right_rounded)),
+                  title: '关于 Manggo Pro',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _showAbout,
+                ),
               ],
             ),
           ),

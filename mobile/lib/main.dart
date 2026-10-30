@@ -51,7 +51,9 @@ class _ManggoAppState extends State<ManggoApp> {
               IndexedStack(
                 index: _tab,
                 children: [
-                  const TranslateScreen(),
+                  TranslateScreen(
+                    onOpenCamera: () => setState(() => _tab = 4),
+                  ),
                   const HistoryScreen(),
                   const VocabScreen(),
                   SettingsScreen(dark: _isDark, onToggleDark: _onThemeChanged),

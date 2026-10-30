@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:manggo_pro/app_theme.dart';
 import 'package:manggo_pro/models/language.dart';
+import 'package:manggo_pro/services/app_settings.dart';
+import 'package:manggo_pro/services/platform_service.dart';
 import 'package:manggo_pro/widgets/language_chip.dart';
 import 'package:manggo_pro/widgets/translate_card.dart';
 import 'package:manggo_pro/screens/language_select_screen.dart';
 
 class TranslateScreen extends StatefulWidget {
-  const TranslateScreen({super.key});
+  /// 点右上角相机时切到「拍照」Tab（由 main.dart 注入）
+  final VoidCallback? onOpenCamera;
+
+  const TranslateScreen({super.key, this.onOpenCamera});
 
   @override
   State<TranslateScreen> createState() => _TranslateScreenState();
@@ -19,6 +25,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
   String _dstText = 'Hello, world';
   bool _translating = false;
   bool _spaceGuard = false;
+  bool _favSrc = false;
+  bool _favDst = false;
 
   /// 输入框末尾连续三个空格（半角或全角）即触发翻译
   static final RegExp _tripleSpace = RegExp(r'[ \u3000]{3,}$');
@@ -88,7 +96,97 @@ class _TranslateScreenState extends State<TranslateScreen> {
         final t = _src;
         _src = _dst;
         _dst = t;
+        final f = _favSrc;
+        _favSrc = _favDst;
+        _favDst = f;
       });
+
+  // ---------------- 按钮实际行为 ----------------
+
+  void _toast(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(milliseconds: 1400),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  Future<void> _copy(String text) async {
+    if (text.trim().isEmpty) {
+      _toast('没有可复制的内容');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    _toast('已复制');
+  }
+
+  Future<void> _speak(String text, Language lang) async {
+    if (!AppSettings.speechEnabled.value) {
+      _toast('语音播报已在设置中关闭');
+      return;
+    }
+    if (text.trim().isEmpty) {
+      _toast('没有可播报的内容');
+      return;
+    }
+    final ok = await PlatformService.speak(text, lang: lang.code);
+    if (!ok) _toast('当前设备不支持语音播报');
+  }
+
+  void _toggleFav(bool isSource) {
+    setState(() => isSource ? _favSrc = !_favSrc : _favDst = !_favDst);
+    _toast((isSource ? _favSrc : _favDst) ? '已加入生词本' : '已取消收藏');
+  }
+
+  Future<void> _share() async {
+    final ok = await PlatformService.share(
+      '${_srcController.text.trim()}\n$_dstText',
+    );
+    if (!ok) _toast('当前设备不支持分享');
+  }
+
+  void _showMore() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.clear_all_rounded),
+              title: const Text('清空输入'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _srcController.clear();
+                setState(() => _dstText = '');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz_rounded),
+              title: const Text('交换语言'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _swap();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.keyboard_alt_outlined),
+              title: const Text('切换输入法'),
+              subtitle: const Text('启用 Manggo 翻译输入法后，任意 App 里连按三次空格即可翻译'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                PlatformService.showImePicker();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,9 +206,13 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
               Row(
                 children: [
-                  _topAction(Icons.mic_none_rounded),
-                  _topAction(Icons.camera_alt_outlined),
-                  _topAction(Icons.more_horiz_rounded),
+                  _topAction(Icons.mic_none_rounded,
+                      tooltip: '语音输入', onTap: () => _toast('语音输入待接入系统语音识别')),
+                  _topAction(Icons.camera_alt_outlined,
+                      tooltip: '拍照取词',
+                      onTap: () => widget.onOpenCamera?.call()),
+                  _topAction(Icons.more_horiz_rounded,
+                      tooltip: '更多', onTap: _showMore),
                 ],
               ),
             ],
@@ -157,11 +259,19 @@ class _TranslateScreenState extends State<TranslateScreen> {
                     text: '',
                     editable: true,
                     controller: _srcController,
+                    onSpeak: () => _speak(_srcController.text, _src),
+                    onCopy: () => _copy(_srcController.text),
+                    onFavorite: () => _toggleFav(true),
+                    favorited: _favSrc,
                   ),
                   const SizedBox(height: 36),
                   TranslateCard(
                     header: '译文 · ${_dst.name}',
                     text: _translating ? '翻译中…' : _dstText,
+                    onSpeak: () => _speak(_dstText, _dst),
+                    onCopy: () => _copy(_dstText),
+                    onFavorite: () => _toggleFav(false),
+                    favorited: _favDst,
                   ),
                 ],
               ),
@@ -207,10 +317,15 @@ class _TranslateScreenState extends State<TranslateScreen> {
           // 快捷操作
           Row(
             children: [
-              _quickBtn('复制', Icons.content_copy_outlined),
-              _quickBtn('语音', Icons.volume_up_outlined),
-              _quickBtn('收藏', Icons.star_border_rounded),
-              _quickBtn('分享', Icons.share_outlined),
+              _quickBtn(
+                  '复制', Icons.content_copy_outlined, () => _copy(_dstText)),
+              _quickBtn(
+                  '语音', Icons.volume_up_outlined, () => _speak(_dstText, _dst)),
+              _quickBtn(
+                  '收藏',
+                  _favDst ? Icons.star_rounded : Icons.star_border_rounded,
+                  () => _toggleFav(false)),
+              _quickBtn('分享', Icons.share_outlined, _share),
             ],
           ),
         ],
@@ -218,34 +333,45 @@ class _TranslateScreenState extends State<TranslateScreen> {
     );
   }
 
-  Widget _topAction(IconData icon) => InkWell(
-        onTap: () {},
-        child: Container(
-          width: 34,
-          height: 34,
-          margin: const EdgeInsets.only(left: 6),
-          decoration: const BoxDecoration(shape: BoxShape.circle),
-          child: Icon(icon, size: 22, color: Theme.of(context).iconTheme.color),
+  Widget _topAction(IconData icon, {String? tooltip, VoidCallback? onTap}) =>
+      Tooltip(
+        message: tooltip ?? '',
+        child: InkResponse(
+          onTap: onTap,
+          radius: 22,
+          child: Container(
+            width: 34,
+            height: 34,
+            margin: const EdgeInsets.only(left: 6),
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(shape: BoxShape.circle),
+            child:
+                Icon(icon, size: 22, color: Theme.of(context).iconTheme.color),
+          ),
         ),
       );
 
-  Widget _quickBtn(String label, IconData icon) => Expanded(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 5),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            border: Border.all(
-              color: Theme.of(context).dividerColor,
+  Widget _quickBtn(String label, IconData icon, VoidCallback onTap) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(Manggo.radiusSm),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 5),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              border: Border.all(
+                color: Theme.of(context).dividerColor,
+              ),
+              borderRadius: BorderRadius.circular(Manggo.radiusSm),
             ),
-            borderRadius: BorderRadius.circular(Manggo.radiusSm),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, size: 20, color: Theme.of(context).iconTheme.color),
-              const SizedBox(height: 4),
-              Text(label, style: const TextStyle(fontSize: 11.5)),
-            ],
+            child: Column(
+              children: [
+                Icon(icon, size: 20, color: Theme.of(context).iconTheme.color),
+                const SizedBox(height: 4),
+                Text(label, style: const TextStyle(fontSize: 11.5)),
+              ],
+            ),
           ),
         ),
       );
