@@ -16,7 +16,64 @@ class _TranslateScreenState extends State<TranslateScreen> {
   Language _src = Language.zh;
   Language _dst = Language.en;
   final _srcController = TextEditingController(text: '你好，世界');
-  final _dstText = 'Hello, world';
+  String _dstText = 'Hello, world';
+  bool _translating = false;
+  bool _spaceGuard = false;
+
+  /// 输入框末尾连续三个空格（半角或全角）即触发翻译
+  static final RegExp _tripleSpace = RegExp(r'[ \u3000]{3,}$');
+
+  /// 骨架期的本地词表；接入真实翻译 API 后只需替换 _localTranslate
+  static const Map<String, String> _demoDict = {
+    '你好，世界': 'Hello, world',
+    '今天天气真好': 'The weather is nice today',
+    '请帮我翻译这段': 'Please translate this for me',
+    '谢谢你的帮助': 'Thank you for your help',
+    '我们几点见面': 'What time shall we meet',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _srcController.addListener(_onInputChanged);
+  }
+
+  @override
+  void dispose() {
+    _srcController.removeListener(_onInputChanged);
+    _srcController.dispose();
+    super.dispose();
+  }
+
+  void _onInputChanged() {
+    if (_spaceGuard) return;
+    final text = _srcController.text;
+    if (!_tripleSpace.hasMatch(text)) return;
+    _spaceGuard = true;
+    // 吃掉触发用的空格，避免它们混进译文内容
+    final stripped = text.replaceFirst(_tripleSpace, '');
+    _srcController.value = TextEditingValue(
+      text: stripped,
+      selection: TextSelection.collapsed(offset: stripped.length),
+    );
+    _spaceGuard = false;
+    _translate();
+  }
+
+  Future<void> _translate() async {
+    final src = _srcController.text.trim();
+    if (src.isEmpty || _translating) return;
+    setState(() => _translating = true);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    setState(() {
+      _dstText = _localTranslate(src);
+      _translating = false;
+    });
+  }
+
+  String _localTranslate(String src) =>
+      _demoDict[src] ?? '[${_dst.code.toUpperCase()}] $src';
 
   void _pick(bool isSource) async {
     final chosen = await Navigator.of(context).push<Language>(
@@ -97,13 +154,16 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 Column(
                   children: [
                     TranslateCard(
-                      header: '源语言 · 中文（简体）',
+                      header: '源语言 · ${_src.name}',
                       text: '',
                       editable: true,
                       controller: _srcController,
                     ),
                     const SizedBox(height: 36),
-                    TranslateCard(header: '译文 · English', text: _dstText),
+                    TranslateCard(
+                      header: '译文 · ${_dst.name}',
+                      text: _translating ? '翻译中…' : _dstText,
+                    ),
                   ],
                 ),
                 Positioned(
@@ -111,22 +171,34 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   left: 0,
                   right: 0,
                   child: Center(
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        gradient: Manggo.fabGradient,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(.25),
-                            blurRadius: 12,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
+                    child: GestureDetector(
+                      onTap: _translate,
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: Manggo.fabGradient,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(.25),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: _translating
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.translate_rounded,
+                                color: Colors.white, size: 24),
                       ),
-                      child: const Icon(Icons.translate_rounded,
-                          color: Colors.white, size: 24),
                     ),
                   ),
                 ),
