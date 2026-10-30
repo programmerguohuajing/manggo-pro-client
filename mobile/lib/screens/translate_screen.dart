@@ -4,6 +4,7 @@ import 'package:manggo_pro/app_theme.dart';
 import 'package:manggo_pro/models/language.dart';
 import 'package:manggo_pro/services/app_settings.dart';
 import 'package:manggo_pro/services/platform_service.dart';
+import 'package:manggo_pro/services/vocab_store.dart';
 import 'package:manggo_pro/widgets/language_chip.dart';
 import 'package:manggo_pro/widgets/translate_card.dart';
 import 'package:manggo_pro/screens/language_select_screen.dart';
@@ -25,8 +26,12 @@ class _TranslateScreenState extends State<TranslateScreen> {
   String _dstText = 'Hello, world';
   bool _translating = false;
   bool _spaceGuard = false;
-  bool _favSrc = false;
-  bool _favDst = false;
+
+  /// 星标状态直接从生词本推导，不再各自存一份 bool——
+  /// 否则「收藏」只改本地状态，生词本里永远看不到。
+  bool get _favSrc => VocabStore.contains(_srcController.text);
+
+  bool get _favDst => VocabStore.contains(_dstText);
 
   /// 输入框末尾连续三个空格（半角或全角）即触发翻译
   static final RegExp _tripleSpace = RegExp(r'[ \u3000]{3,}$');
@@ -44,13 +49,20 @@ class _TranslateScreenState extends State<TranslateScreen> {
   void initState() {
     super.initState();
     _srcController.addListener(_onInputChanged);
+    // 生词本在别处被删/被标记时，本页星标同步刷新
+    VocabStore.entries.addListener(_onVocabChanged);
   }
 
   @override
   void dispose() {
+    VocabStore.entries.removeListener(_onVocabChanged);
     _srcController.removeListener(_onInputChanged);
     _srcController.dispose();
     super.dispose();
+  }
+
+  void _onVocabChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onInputChanged() {
@@ -96,9 +108,6 @@ class _TranslateScreenState extends State<TranslateScreen> {
         final t = _src;
         _src = _dst;
         _dst = t;
-        final f = _favSrc;
-        _favSrc = _favDst;
-        _favDst = f;
       });
 
   // ---------------- 按钮实际行为 ----------------
@@ -137,8 +146,16 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   void _toggleFav(bool isSource) {
-    setState(() => isSource ? _favSrc = !_favSrc : _favDst = !_favDst);
-    _toast((isSource ? _favSrc : _favDst) ? '已加入生词本' : '已取消收藏');
+    final word = isSource ? _srcController.text : _dstText;
+    final meaning = isSource ? _dstText : _srcController.text;
+    if (word.trim().isEmpty) {
+      _toast(isSource ? '没有可收藏的内容' : '没有可收藏的译文');
+      return;
+    }
+    final added = VocabStore.toggle(word: word, meaning: meaning);
+    // 生词本变更会自己通知，这里兜底刷新一次本页星标
+    setState(() {});
+    _toast(added ? '已加入生词本' : '已从生词本移除');
   }
 
   Future<void> _share() async {
