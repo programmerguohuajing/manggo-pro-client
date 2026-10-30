@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Manggo Pro 翻译"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Manggo Pro 主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Manggo Pro"
+    }
+  ]
+}

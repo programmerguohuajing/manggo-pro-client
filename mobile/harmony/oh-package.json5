@@ -1,0 +1,9 @@
+{
+  "name": "manggo_pro",
+  "version": "1.0.0",
+  "description": "Manggo Pro HarmonyOS NEXT client (ArkTS/ArkUI)",
+  "main": "",
+  "author": "manggo",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

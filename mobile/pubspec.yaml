@@ -1,0 +1,20 @@
+name: manggo_pro
+description: Manggo Pro 翻译 App —— 三端统一 Flutter 实现（iOS / Android / HarmonyOS NEXT）
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.0.10
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

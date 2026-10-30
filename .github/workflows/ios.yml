@@ -1,0 +1,315 @@
+name: iOS Build
+
+# iOS 出包完全可以在 GitHub Actions 上完成：
+#   - GitHub 提供真实的 macOS runner（Apple Silicon），Xcode / CocoaPods 预装
+#   - 未签名 IPA：零配置，push 即可出包（用于重签 / 内部验证）
+#   - 已签名 IPA：配好 4 个 Secrets 后可出 ad-hoc / App Store 包，甚至直传 TestFlight
+# 详见 mobile/docs/ios-ci.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: '导出方式（unsigned 不需要任何证书）'
+        type: choice
+        default: unsigned
+        options:
+          - unsigned
+          - ad-hoc
+          - development
+          - app-store
+      upload_testflight:
+        description: '上传 TestFlight（需 ASC API Key，仅 app-store 生效）'
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与你本地 Flutter SDK 保持一致；若该版本在官方 release 列表不可用，
+  # 改成 channel 最新版即可（把下面改成 'stable' 并删除 flutter-version 行）
+  FLUTTER_VERSION: '3.47.9'
+  APP_DIR: mobile
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 探测签名 Secrets 是否齐备，决定是否跑签名构建
+  # ---------------------------------------------------------------------------
+  detect-signing:
+    name: Detect signing secrets
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.detect.outputs.enabled }}
+    steps:
+      - name: Detect
+        id: detect
+        env:
+          CERT: ${{ secrets.IOS_CERT_P12 }}
+          PROFILE: ${{ secrets.IOS_PROVISION_PROFILE }}
+          TEAM: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "签名 Secrets 齐备，将执行签名构建"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=跳过签名构建::未配置 IOS_CERT_P12 / IOS_PROVISION_PROFILE / IOS_TEAM_ID，仅产出未签名 IPA"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 未签名 IPA：不需要 Apple 开发者账号，用于自签分发 / 快速验证
+  # ---------------------------------------------------------------------------
+  build-unsigned:
+    name: Unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Toolchain info
+        run: |
+          sw_vers
+          flutter --version
+          xcodebuild -version
+
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Pod install (only if Podfile exists)
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: |
+          if [ -f Podfile ]; then
+            pod install --repo-update
+          else
+            echo "无 Podfile（当前依赖均为纯 Dart），跳过 CocoaPods"
+          fi
+
+      - name: Build iOS (no codesign)
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          APP="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::未找到 $APP"
+            find build/ios -maxdepth 3 -name '*.app' || true
+            exit 1
+          fi
+          OUT="build/ipa-unsigned"
+          rm -rf "$OUT"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/"
+          NAME="ManggoPro-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          ( cd "$OUT" && zip -qry "$NAME" Payload )
+          ls -lh "$OUT"
+          echo "UNSIGNED_IPA=$OUT/$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: ${{ env.APP_DIR }}/build/ipa-unsigned/*.ipa
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 已签名 IPA：需证书 p12 + mobileprovision + Team ID
+  # ---------------------------------------------------------------------------
+  build-signed:
+    name: Signed IPA (${{ inputs.export_method || 'ad-hoc' }})
+    needs: detect-signing
+    if: >-
+      needs.detect-signing.outputs.enabled == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.export_method != 'unsigned')
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      EXPORT_METHOD: ${{ inputs.export_method || 'ad-hoc' }}
+      BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.manggo.manggoPro' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Flutter pub get
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Import certificate and provisioning profile
+        env:
+          CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+
+          printf '%s' "$CERT_P12_BASE64" | openssl base64 -d -A -out "$CERT_PATH"
+          printf '%s' "$PROFILE_BASE64" | openssl base64 -d -A -out "$PROFILE_PATH"
+
+          # 遍历所有 profile：Xcode 是按 UUID 文件名识别的，必须用 profile 自身 UUID 命名
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH" "$(security default-keychain -d user | tr -d '"')"
+
+          PLIST="$RUNNER_TEMP/profile.plist"
+          security cms -D -i "$PROFILE_PATH" > "$PLIST"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PLIST")"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PLIST")"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "已导入证书，Provisioning Profile: $PROFILE_NAME ($PROFILE_UUID)"
+
+      - name: Generate ExportOptions.plist
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          XCODE_MAJOR="$(xcodebuild -version | head -1 | sed 's/Xcode //' | cut -d. -f1)"
+          METHOD="$EXPORT_METHOD"
+          # Xcode 16 起 app-store 改名为 app-store-connect
+          if [ "$METHOD" = "app-store" ] && [ "$XCODE_MAJOR" -ge 16 ] 2>/dev/null; then
+            METHOD="app-store-connect"
+          fi
+          echo "EXPORT_METHOD_RESOLVED=$METHOD" >> "$GITHUB_ENV"
+
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>$METHOD</string>
+            <key>teamID</key>
+            <string>${{ secrets.IOS_TEAM_ID }}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          cat ios/ExportOptions.plist
+
+      - name: Pod install (only if Podfile exists)
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: |
+          if [ -f Podfile ]; then
+            pod install --repo-update
+          else
+            echo "无 Podfile，跳过 CocoaPods"
+          fi
+
+      - name: Archive
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            DEVELOPMENT_TEAM="${{ secrets.IOS_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            archive
+
+      - name: Export IPA
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates
+          ls -lh "$RUNNER_TEMP/export"
+          IPA="$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)"
+          mkdir -p build/ipa-signed
+          cp "$IPA" "build/ipa-signed/ManggoPro-${EXPORT_METHOD}-${GITHUB_RUN_NUMBER}.ipa"
+          echo "SIGNED_IPA=build/ipa-signed/ManggoPro-${EXPORT_METHOD}-${GITHUB_RUN_NUMBER}.ipa" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-signed-ipa
+          path: ${{ env.APP_DIR }}/build/ipa-signed/*.ipa
+          retention-days: 14
+
+      - name: Upload to TestFlight
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.upload_testflight == true &&
+          inputs.export_method == 'app-store'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_PRIVATE_KEY" ]; then
+            echo "::warning::未配置 ASC_API_KEY，跳过 TestFlight 上传"
+            exit 0
+          fi
+          KEY_DIR="$HOME/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool --upload-app \
+            -f "$APP_DIR/$SIGNED_IPA" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi

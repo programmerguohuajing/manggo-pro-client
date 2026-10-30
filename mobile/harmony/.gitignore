@@ -1,0 +1,12 @@
+# HarmonyOS DevEco Studio build outputs
+/build
+/.hvigor
+/.cxx
+/oh_modules
+/entry/build
+/entry/oh_modules
+*.har
+*.hap
+local.properties
+.idea/
+.DS_Store
