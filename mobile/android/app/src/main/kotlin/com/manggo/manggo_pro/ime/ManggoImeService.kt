@@ -32,6 +32,12 @@ class ManggoImeService : InputMethodService() {
     private var translating = false
     private var spaceKey: TextView? = null
 
+    /** 每次翻译递增；请求回来时若已不是最新一次，就丢弃结果 */
+    private var translateToken = 0
+
+    /** 翻译请求走单线程，避免连按多次时并发占用连接 */
+    private val ioExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     private val handler = Handler(Looper.getMainLooper())
     private val resetSpaceTaps = Runnable { spaceTaps = 0 }
 
@@ -53,6 +59,8 @@ class ManggoImeService : InputMethodService() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        translateToken += 1 // 让在途请求回来时直接丢弃
+        ioExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -208,27 +216,47 @@ class ManggoImeService : InputMethodService() {
             return
         }
 
-        val translated = DemoTranslator.translate(content)
-        if (translated == null) {
-            setStatus("未覆盖：$content")
-            return
-        }
-
         translating = true
+        translateToken += 1
+        val token = translateToken
         setStatus("翻译中…")
-        handler.postDelayed({
-            try {
-                if (line.isNotEmpty()) {
-                    ic.deleteSurroundingText(line.length, 0)
+
+        // 网络请求必须离开主线程；回来后用 token 判断是否已被新的请求取代
+        ioExecutor.execute {
+            val remote = RemoteTranslator.translate(content)
+            // 网络不通时才退到离线词表，避免把「没网」误报成「没收录」
+            val offline = if (remote == null) DemoTranslator.translate(content) else null
+
+            handler.post {
+                if (token != translateToken) return@post
+                val translated = remote ?: offline
+                if (translated == null) {
+                    translating = false
+                    setStatus("翻译失败，请检查网络")
+                    return@post
                 }
-                ic.commitText(translated, 1)
-                setStatus("已翻译 ✓")
-            } catch (e: Exception) {
-                setStatus("替换失败")
-            } finally {
-                translating = false
+                try {
+                    // 请求期间用户可能继续打字，确认光标前仍是原文再删，
+                    // 否则会把用户新输入的内容删掉
+                    val now = ic.getTextBeforeCursor(MAX_SCAN, 0)?.toString().orEmpty()
+                    if (!now.endsWith(line)) {
+                        setStatus("内容已变化，已取消")
+                    } else {
+                        if (line.isNotEmpty()) {
+                            ic.deleteSurroundingText(line.length, 0)
+                        }
+                        ic.commitText(translated, 1)
+                        setStatus(
+                            if (remote != null) "已翻译 ✓" else "已翻译 ✓（离线词表）"
+                        )
+                    }
+                } catch (e: Exception) {
+                    setStatus("替换失败")
+                } finally {
+                    translating = false
+                }
             }
-        }, TRANSLATE_DELAY_MS)
+        }
     }
 
     private fun isPasswordField(info: EditorInfo?): Boolean {
@@ -248,7 +276,6 @@ class ManggoImeService : InputMethodService() {
     companion object {
         private const val STATUS_IDLE = "空格 ×3 翻译这一段"
         private const val SPACE_WINDOW_MS = 1500L
-        private const val TRANSLATE_DELAY_MS = 180L
         private const val MAX_SCAN = 1000
     }
 }
