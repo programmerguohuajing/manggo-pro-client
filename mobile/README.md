@@ -33,7 +33,7 @@ mobile/
 
 | 项 | 状态 |
 | --- | --- |
-| Flutter SDK 3.47.9 | 已装于 `C:\Users\A\develop`（未在 PATH，需自行加入） |
+| Flutter SDK 3.47.9 | 已装于 `C:\Users\A\develop`，路径在**系统级 PATH** 中，新开终端可直接用 `flutter` |
 | Dart SDK 3.13.7 | Flutter 自带，可用 |
 | Android SDK | 已装 `%LOCALAPPDATA%\Android\sdk`（platform-tools / build-tools 36 / cmdline-tools） |
 | Java | Zulu 11（Gradle 可用） |
@@ -42,7 +42,36 @@ mobile/
 | Android / iOS 工程 | 已由 `flutter create` 生成 |
 | 鸿蒙工程 | ArkTS/ArkUI 骨架已建（需 DevEco Studio + HarmonyOS SDK 才能构建 HAP） |
 
-> 注意：当前自动化会话中 **Dart 创建子进程会被系统拒绝**（`ERROR_PIPE_BUSY 231`），因此 `flutter pub get / build / doctor` 在本会话内无法完整执行；`dart pub get` 与内核编译已验证可用。请在你自己的 PowerShell 终端执行下列命令。
+> 注意：AI 的自动化执行环境（沙箱/Job Object）禁止 Dart 创建子进程（`CreateFile failed 231` / `process_win.cc:744`），因此 `flutter pub get / build / doctor` 在**该环境内**无法执行，与 PATH 和 shell 选择无关；`dart pub get` 与 `frontend_server` 内核编译已验证可用。在你自己终端里不受此限制。
+
+## 国内网络与镜像
+
+`flutter doctor` 出现下列报错属于**国内网络对 Google 域名的 TLS 重置**，不是真的中间人攻击，也不代表环境装错：
+
+```
+X A cryptographic error occurred while checking "https://pub.dev/": Connection terminated during handshake
+X ... "https://storage.googleapis.com/" ...
+X ... "https://maven.google.com/" ...
+```
+
+已做的处理（全项目生效）：
+
+| 层 | 配置 | 位置 |
+| --- | --- | --- |
+| Dart 包 | `PUB_HOSTED_URL=https://pub.flutter-io.cn` | 用户级环境变量（持久） |
+| Engine 产物 | `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn` | 用户级环境变量（持久） |
+| Gradle 依赖 | 阿里云 `maven.aliyun.com/repository/{google,public,gradle-plugin}` | `android/settings.gradle.kts`、`android/build.gradle.kts`（`GRADLE_MIRROR=off` 可切回官方源） |
+| Gradle 发行版 | 腾讯云 `mirrors.cloud.tencent.com/gradle/` | `android/gradle/wrapper/gradle-wrapper.properties` |
+
+**关键点**：`flutter doctor` 的 `Network resources` 检查面向 `pub.dev` / `storage.googleapis.com` / `maven.google.com` 三个固定域名，**多数情况下不会因为设了镜像就变绿**。它只是连通性提示，不影响实际构建——`pub get` 走镜像、Android 依赖走阿里云。想彻底变绿只能上全局代理。
+
+验证镜像是否可用：
+
+```powershell
+cd mobile
+powershell -ExecutionPolicy Bypass -File tool\setup_windows.ps1
+# 脚本会先做 4 个镜像的连通性自检，再跑 precache / pub get / doctor / apk
+```
 
 ## 三端运行
 

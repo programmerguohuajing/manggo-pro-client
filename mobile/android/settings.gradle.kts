@@ -10,7 +10,17 @@ pluginManagement {
 
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
+    // 国内直连 google() / mavenCentral() 会被 TLS 重置（flutter doctor 报的
+    // "Connection terminated during handshake"），默认改走阿里云镜像。
+    // CI 或海外网络可设环境变量 GRADLE_MIRROR=off 切回官方源。
+    val useMirror = System.getenv("GRADLE_MIRROR")?.lowercase() != "off"
+
     repositories {
+        if (useMirror) {
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        }
         google()
         mavenCentral()
         gradlePluginPortal()

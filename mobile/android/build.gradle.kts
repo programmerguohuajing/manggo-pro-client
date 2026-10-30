@@ -1,5 +1,11 @@
+val useMirror = System.getenv("GRADLE_MIRROR")?.lowercase() != "off"
+
 allprojects {
     repositories {
+        if (useMirror) {
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+        }
         google()
         mavenCentral()
     }

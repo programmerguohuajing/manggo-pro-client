@@ -3,8 +3,30 @@
 $ErrorActionPreference = 'Stop'
 
 # 国内镜像（pub / engine 资源）
+# 同时写入用户级环境变量，重开终端后依然生效（否则每开一个新窗口都要重设）
 $env:PUB_HOSTED_URL = 'https://pub.flutter-io.cn'
 $env:FLUTTER_STORAGE_BASE_URL = 'https://storage.flutter-io.cn'
+[Environment]::SetEnvironmentVariable('PUB_HOSTED_URL', $env:PUB_HOSTED_URL, 'User')
+[Environment]::SetEnvironmentVariable('FLUTTER_STORAGE_BASE_URL', $env:FLUTTER_STORAGE_BASE_URL, 'User')
+
+Write-Host '==> 镜像连通性自检' -ForegroundColor Cyan
+$probes = @(
+    @{ n = 'pub 镜像';     u = 'https://pub.flutter-io.cn/api/packages/flutter_svg' },
+    @{ n = 'engine 镜像';  u = 'https://storage.flutter-io.cn/flutter_infra_release/releases/releases_windows.json' },
+    @{ n = 'maven 阿里云'; u = 'https://maven.aliyun.com/repository/google/com/android/tools/build/gradle/maven-metadata.xml' },
+    @{ n = 'gradle 腾讯云'; u = 'https://mirrors.cloud.tencent.com/gradle/gradle-9.3.1-all.zip' }
+)
+foreach ($p in $probes) {
+    try {
+        $r = Invoke-WebRequest -Uri $p.u -Method Head -TimeoutSec 15 -UseBasicParsing
+        Write-Host ("   OK   {0}  ({1})" -f $p.n, $r.StatusCode) -ForegroundColor Green
+    } catch {
+        Write-Host ("   FAIL {0}  {1}" -f $p.n, $p.u) -ForegroundColor Yellow
+    }
+}
+
+# Gradle 走阿里云镜像（见 android/settings.gradle.kts）；CI/海外网络可设 off
+if (-not $env:GRADLE_MIRROR) { $env:GRADLE_MIRROR = 'on' }
 
 Write-Host '==> flutter config: android sdk' -ForegroundColor Cyan
 flutter config --android-sdk "$env:LOCALAPPDATA\Android\sdk"
