@@ -141,7 +141,7 @@ jobs:
   # 已签名 IPA：需证书 p12 + mobileprovision + Team ID
   # ---------------------------------------------------------------------------
   build-signed:
-    name: Signed IPA (${{ inputs.export_method || 'ad-hoc' }})
+    name: Signed IPA
     needs: detect-signing
     if: >-
       needs.detect-signing.outputs.enabled == 'true' &&
