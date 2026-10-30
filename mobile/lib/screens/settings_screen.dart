@@ -52,7 +52,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _checkingUpdate = false);
 
     if (check.failed) {
-      _toast(check.error!);
+      // 检查失败必须留下可读的原因。之前用 toast，1.4 秒就消失，
+      // 用户（包括排查问题的自己）根本来不及看清是网络问题还是源挂了。
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('检查更新失败'),
+          content: Text(check.error!),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
       return;
     }
     if (!check.hasUpdate) {

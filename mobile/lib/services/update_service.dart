@@ -123,26 +123,29 @@ class UpdateService {
     }
 
     // 多家镜像并发竞速，取第一个成功解析的结果
-    final fetched = await _race(versionUrl: _versionUrl);
-    if (fetched == null) {
+    final r = await _race(versionUrl: _versionUrl);
+    if (r.info == null) {
       return UpdateCheck(
         currentCode: v.code,
         currentName: v.name,
-        error: '检查更新失败，请检查网络（已尝试 ${mirrors.length} 个更新源）',
+        error: '检查更新失败。${r.detail}',
       );
     }
 
     return UpdateCheck(
-      info: fetched.info,
+      info: r.info,
       currentCode: v.code,
       currentName: v.name,
     );
   }
 
-  static Future<({UpdateInfo info, String mirror})?> _race({
+  /// 竞速结果。[detail] 在失败时汇总每个源的具体原因——
+  /// 只说「请检查网络」没法判断到底是断网、镜像挂了还是被墙。
+  static Future<({UpdateInfo? info, String detail})> _race({
     required String versionUrl,
   }) async {
-    final completer = Completer<({UpdateInfo info, String mirror})?>();
+    final completer = Completer<UpdateInfo?>();
+    final errors = <String>[];
     var pending = mirrors.length;
 
     // 必须带 cache buster：加速镜像普遍会缓存 version.json（实测加上
@@ -151,45 +154,70 @@ class UpdateService {
     final bust = DateTime.now().millisecondsSinceEpoch;
 
     for (final prefix in mirrors) {
-      _fetchJson('${proxied(versionUrl, prefix)}?t=$bust')
-          .then((info) {
-            if (info != null && !completer.isCompleted) {
-              _preferred = prefix;
-              completer.complete((info: info, mirror: prefix));
-            }
-          })
-          .catchError((_) {})
-          .whenComplete(() {
-            pending -= 1;
-            // 全部失败才认定失败；成功的已在上面 complete
-            if (pending == 0 && !completer.isCompleted) {
-              completer.complete(null);
-            }
-          });
+      final name = mirrorName(prefix);
+      _fetchJson('${proxied(versionUrl, prefix)}?t=$bust', name).then((res) {
+        if (res.info != null && !completer.isCompleted) {
+          _preferred = prefix;
+          completer.complete(res.info);
+        } else if (res.err != null) {
+          errors.add('$name（${res.err}）');
+        }
+      }).catchError((Object e) {
+        errors.add('$name（$e）');
+      }).whenComplete(() {
+        pending -= 1;
+        // 全部失败才认定失败；成功的已在上面 complete
+        if (pending == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
     }
 
-    return completer.future
-        .timeout(const Duration(seconds: 20))
-        .catchError((Object _) => null);
+    UpdateInfo? info;
+    try {
+      info = await completer.future.timeout(const Duration(seconds: 12));
+    } catch (_) {
+      info = null;
+    }
+    if (info != null) return (info: info, detail: '');
+
+    final detail = errors.isEmpty
+        ? '已尝试 ${mirrors.length} 个更新源，均无响应'
+        : '已尝试 ${mirrors.length} 个更新源：${errors.join('、')}';
+    return (info: null, detail: detail);
   }
 
-  static Future<UpdateInfo?> _fetchJson(String url) async {
+  static Future<({UpdateInfo? info, String? err})> _fetchJson(
+    String url,
+    String mirrorLabel,
+  ) async {
     final client = HttpClient()..connectionTimeout = _probeTimeout;
     try {
       final req = await client.getUrl(Uri.parse(url)).timeout(_probeTimeout);
       req.headers.set('User-Agent', 'ManggoPro/1.0 (Flutter)');
-      // 镜像会缓存，加个随机参数避免拿到旧的版本号
-      req.headers.set('Cache-Control', 'no-cache');
       final res = await req.close().timeout(_probeTimeout);
-      if (res.statusCode != 200) return null;
+      if (res.statusCode != 200) {
+        return (info: null, err: 'HTTP ${res.statusCode}');
+      }
       final body =
           await res.transform(utf8.decoder).join().timeout(_probeTimeout);
       final json = jsonDecode(body);
-      if (json is! Map<String, dynamic>) return null;
+      if (json is! Map<String, dynamic>) {
+        return (info: null, err: '返回格式异常');
+      }
       final info = UpdateInfo.fromJson(json);
-      return info.apkUrl.isEmpty ? null : info;
-    } catch (_) {
-      return null;
+      if (info.apkUrl.isEmpty) return (info: null, err: '缺少 apkUrl');
+      return (info: info, err: null);
+    } on TimeoutException {
+      return (info: null, err: '超时');
+    } on HandshakeException {
+      return (info: null, err: 'TLS 握手失败');
+    } on SocketException {
+      return (info: null, err: '无法连接');
+    } on FormatException {
+      return (info: null, err: 'JSON 解析失败');
+    } catch (e) {
+      return (info: null, err: '$e');
     } finally {
       client.close(force: true);
     }
