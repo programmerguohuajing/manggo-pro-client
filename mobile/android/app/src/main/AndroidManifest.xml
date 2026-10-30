@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 翻译需要访问网络。注意：Flutter 模板只在 debug/profile 清单里声明了该权限，
+         release 清单默认没有，漏掉会导致 release 包翻译一律失败。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="manggo_pro"
         android:name="${applicationName}"

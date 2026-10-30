@@ -8,6 +8,9 @@ import 'package:manggo_pro/app_theme.dart';
 class TranslateCard extends StatelessWidget {
   final String header;
   final String text;
+
+  /// 非空时表示这次翻译失败了，用错误样式展示，不能当译文用
+  final String? error;
   final bool editable;
   final TextEditingController? controller;
   final VoidCallback? onSpeak;
@@ -19,6 +22,7 @@ class TranslateCard extends StatelessWidget {
     super.key,
     required this.header,
     required this.text,
+    this.error,
     this.editable = false,
     this.controller,
     this.onSpeak,
@@ -93,10 +97,31 @@ class TranslateCard extends StatelessWidget {
                   ),
                   style: const TextStyle(fontSize: 15.5, height: 1.6),
                 )
-              : Text(
-                  text,
-                  style: const TextStyle(fontSize: 15.5, height: 1.6),
-                ),
+              : (error != null
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2, right: 6),
+                          child: Icon(Icons.error_outline_rounded,
+                              size: 16, color: Color(0xFFE5484D)),
+                        ),
+                        Expanded(
+                          child: Text(
+                            error!,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.6,
+                              color: Color(0xFFE5484D),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      text,
+                      style: const TextStyle(fontSize: 15.5, height: 1.6),
+                    )),
         ],
       ),
     );
