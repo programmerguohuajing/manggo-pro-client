@@ -100,3 +100,31 @@ static const List<String> mirrors = <String>[
 - 下载不支持断点续传：镜像之间不共享分片，中断后从头再来。
 - 只在 Android 上实现了。iOS 受系统限制不能自行安装，只能跳 App Store；
   HarmonyOS 需要走应用市场的更新通道。
+
+## 六、踩过的坑（都是实测出来的）
+
+### 1. versionCode 不递增，更新永远不触发
+`pubspec.yaml` 原本固定 `1.0.0+1`，每次构建 versionCode 都是 1，`最新 > 当前` 永远不成立。
+CI 里必须用 `github.run_number` 覆写。
+
+### 2. 镜像缓存 version.json
+`gh-proxy.com` 会缓存版本清单，发版后仍返回旧号。**加 `Cache-Control: no-cache` 请求头无效**，
+只有 URL 上加 `?t=<时间戳>` 才能拿到最新值。不加这个，用户永远收不到更新。
+
+### 3. 公共镜像大面积失效
+2026-10 实测 8 个常见加速站，只有 `gh-proxy.com` 可用。列表要保留多家做冗余，
+并且优先复用本次成功的那家，别让它每次都重新撞墙。
+
+### 4. FileProvider 路径不匹配 → 安装器拉不起来
+Dart 侧用 `Directory.systemTemp` 存包，其路径**不保证**等于 `cacheDir`；
+路径不在 `file_paths.xml` 声明的范围内时，`FileProvider.getUriForFile` 会抛
+`IllegalArgumentException`。稳妥做法：由原生侧把包复制到 `cacheDir/updates/`
+（已在清单里声明）再生成 URI。
+
+### 5. 检查失败别只给 toast
+1.4 秒就消失的提示没法定位问题。失败要弹窗并列出**每个源的具体原因**
+（超时 / TLS 握手失败 / HTTP 状态码 / JSON 异常）。
+
+### 6. 授权后重复下载
+初次安装必然缺「安装未知应用」权限，用户去授权再回来时，不能把几十 MB 重下一遍。
+要记住已下载路径，重试直接安装。

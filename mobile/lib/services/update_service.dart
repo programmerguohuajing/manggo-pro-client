@@ -237,6 +237,15 @@ class UpdateService {
     if (!await dir.exists()) await dir.create(recursive: true);
     final file = File('${dir.path}/${info.apkName}');
 
+    // 清掉上一版残留的包，避免缓存堆积
+    await for (final entity in dir.list()) {
+      if (entity is File &&
+          entity.path.endsWith('.apk') &&
+          !entity.path.endsWith(info.apkName)) {
+        await entity.delete().catchError((_) => entity);
+      }
+    }
+
     // 优先上次命中的镜像，其余按原顺序补位
     final order = <String>[
       if (_preferred.isNotEmpty) _preferred,
@@ -246,57 +255,86 @@ class UpdateService {
     final urlsToTry = [info.apkUrl];
     String lastError = '下载失败';
     for (final prefix in order) {
-      for (final raw in urlsToTry) {
-        final url = proxied(raw, prefix);
-        final name = mirrorName(prefix);
-        try {
-          final ok = await _downloadOne(url, file, info.size, (r, t) {
-            onProgress?.call(r, t, name);
-          });
-          if (!ok) {
-            lastError = '$name 下载中断';
-            continue;
-          }
-          // 校验哈希：镜像有时会返回错误页/旧文件
-          if (info.sha256.isNotEmpty) {
-            final actual = await PlatformService.sha256(file.path);
-            if (actual != null &&
-                actual.toLowerCase() != info.sha256.toLowerCase()) {
-              lastError = '$name 校验失败';
-              await file.delete().catchError((_) => file);
+      final name = mirrorName(prefix);
+      // 同一个源重试两次：国内链路下几十 MB 的包断流很常见，
+      // 配合断点续传，重试通常能把剩下的部分补齐。
+      for (var attempt = 0; attempt < 3; attempt++) {
+        for (final raw in urlsToTry) {
+          final url = proxied(raw, prefix);
+          try {
+            final ok = await _downloadOne(url, file, info.size, (r, t) {
+              onProgress?.call(r, t, name);
+            });
+            if (!ok) {
+              lastError = '$name 下载中断';
               continue;
             }
+            // 校验哈希：镜像有时会返回错误页/旧文件，断点续传也可能拼错
+            if (info.sha256.isNotEmpty) {
+              final actual = await PlatformService.sha256(file.path);
+              if (actual != null &&
+                  actual.toLowerCase() != info.sha256.toLowerCase()) {
+                lastError = '$name 校验失败';
+                await file.delete().catchError((_) => file);
+                break;
+              }
+            }
+            _preferred = prefix;
+            return (path: file.path, error: null);
+          } catch (e) {
+            lastError = '$name：$e';
           }
-          _preferred = prefix;
-          return (path: file.path, error: null);
-        } catch (e) {
-          lastError = '$name：$e';
         }
+        // 还有进度就继续续传，否则换下一个源
+        final got = await file.exists() ? await file.length() : 0;
+        if (got >= info.size && info.size > 0) break;
+        await Future<void>.delayed(const Duration(seconds: 2));
       }
     }
     return (path: null, error: '下载失败（$lastError）');
   }
 
+  /// 下载单个源，支持断点续传。
+  ///
+  /// 已下载的部分用 `Range: bytes=<n>-` 请求剩余内容；服务端返回 206 就追加写，
+  /// 返回 200 说明不支持分段，只能整包重来。跨源也保留已下载部分——
+  /// 最终有 sha256 兜底，续传错了会被校验拦下来。
   static Future<bool> _downloadOne(
     String url,
     File target,
     int expectedSize,
     void Function(int, int) onProgress,
   ) async {
-    final client = HttpClient()..connectionTimeout = _probeTimeout;
+    final client = HttpClient()
+      ..connectionTimeout = _probeTimeout
+      // 默认 idleTimeout 15s，慢速链路下容易被判空闲而掐断
+      ..idleTimeout = const Duration(seconds: 60);
     IOSink? sink;
     try {
+      final existing = await target.exists() ? await target.length() : 0;
+      // 已经下满（上次下完但没装成）：不再发请求，交给上层做 sha 校验
+      if (expectedSize > 0 && existing >= expectedSize) return true;
+
       final req = await client.getUrl(Uri.parse(url)).timeout(_probeTimeout);
       req.headers.set('User-Agent', 'ManggoPro/1.0 (Flutter)');
+      if (existing > 0) {
+        req.headers.set('Range', 'bytes=$existing-');
+      }
       final res = await req.close().timeout(_probeTimeout);
-      if (res.statusCode != 200) return false;
 
-      final total = res.contentLength > 0
-          ? res.contentLength
-          : (expectedSize > 0 ? expectedSize : 0);
+      final resuming = res.statusCode == 206 && existing > 0;
+      if (res.statusCode != 200 && res.statusCode != 206) return false;
 
-      var received = 0;
-      sink = target.openWrite();
+      final total = expectedSize > 0
+          ? expectedSize
+          : (res.contentLength > 0
+              ? res.contentLength + (resuming ? existing : 0)
+              : 0);
+
+      var received = resuming ? existing : 0;
+      sink = target.openWrite(
+        mode: resuming ? FileMode.append : FileMode.write,
+      );
       await for (final chunk in res) {
         sink.add(chunk);
         received += chunk.length;
