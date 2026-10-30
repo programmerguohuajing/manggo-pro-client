@@ -1,7 +1,7 @@
 name: manggo_pro
 description: Manggo Pro 翻译 App —— 三端统一 Flutter 实现（iOS / Android / HarmonyOS NEXT）
 publish_to: 'none'
-version: 1.0.1+1
+version: 1.0.2+1
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
