@@ -32,6 +32,8 @@ Windows 不能出 iOS 包，但**不是不能出包**——只是把编译这一
 
 Release tag 固定 `ios-latest`，每次先删再建，覆盖式发布，不会堆几百个 tag。
 
+包名里的 `<构建号>` 就是 `CFBundleVersion`，CI 用 `flutter build ios --build-number=$GITHUB_RUN_NUMBER` 覆盖了 pubspec 里的 `+1`，跟 Android 的 `versionCode` 对齐。不这么写的话每次构建都是 `1`，ad-hoc / TestFlight 会以「构建号未递增」为由拒收。
+
 这个 IPA 是标准 zip 结构（`Payload/Runner.app`），可以：
 - 用 Sideloadly / AltStore / TrollStore 在自己设备上重签安装
 - 用它验证编译链路是否健康

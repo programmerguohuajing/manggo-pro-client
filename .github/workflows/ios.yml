@@ -133,7 +133,14 @@ jobs:
 
       - name: Build iOS (no codesign)
         working-directory: ${{ env.APP_DIR }}
-        run: flutter build ios --release --no-codesign
+        run: |
+          set -euo pipefail
+          # --build-number 用 run_number 覆盖 pubspec 里的 +1，
+          # 和 Android 的 versionCode 对齐，否则每次构建 CFBundleVersion 都是 1，
+          # ad-hoc / TestFlight 会因为「构建号没涨」被拒
+          flutter build ios --release --no-codesign --build-number="${GITHUB_RUN_NUMBER}"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+            build/ios/iphoneos/Runner.app/Info.plist
 
       - name: Package unsigned IPA
         id: pkg
