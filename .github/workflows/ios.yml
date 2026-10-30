@@ -26,12 +26,21 @@ on:
     branches:
       - main
       - master
+    # 只认真正影响 iOS 产物的路径，改 README / android 配置不再触发 macOS 构建
     paths:
-      - 'mobile/**'
+      - 'mobile/lib/**'
+      - 'mobile/ios/**'
+      - 'mobile/test/**'
+      - 'mobile/pubspec.yaml'
+      - 'mobile/pubspec.lock'
       - '.github/workflows/ios.yml'
   pull_request:
     paths:
-      - 'mobile/**'
+      - 'mobile/lib/**'
+      - 'mobile/ios/**'
+      - 'mobile/test/**'
+      - 'mobile/pubspec.yaml'
+      - 'mobile/pubspec.lock'
       - '.github/workflows/ios.yml'
 
 permissions:
