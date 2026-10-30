@@ -21,6 +21,15 @@ class _ManggoAppState extends State<ManggoApp> {
   ThemeMode _themeMode = ThemeMode.system;
   int _tab = 0;
 
+  /// 历史页 → 翻译页的文本回填通道
+  final ValueNotifier<TranslateSeed?> _seed = ValueNotifier(null);
+
+  @override
+  void dispose() {
+    _seed.dispose();
+    super.dispose();
+  }
+
   bool get _isDark {
     final platformDark =
         WidgetsBinding.instance.platformDispatcher.platformBrightness ==
@@ -52,9 +61,15 @@ class _ManggoAppState extends State<ManggoApp> {
                 index: _tab,
                 children: [
                   TranslateScreen(
+                    seed: _seed,
                     onOpenCamera: () => setState(() => _tab = 4),
                   ),
-                  const HistoryScreen(),
+                  HistoryScreen(
+                    onOpen: (src, dst) {
+                      _seed.value = TranslateSeed(src, dst);
+                      setState(() => _tab = 0);
+                    },
+                  ),
                   const VocabScreen(),
                   SettingsScreen(dark: _isDark, onToggleDark: _onThemeChanged),
                   const OcrScreen(),

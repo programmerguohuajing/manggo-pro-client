@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:manggo_pro/app_theme.dart';
@@ -13,10 +14,20 @@ class TranslateScreen extends StatefulWidget {
   /// 点右上角相机时切到「拍照」Tab（由 main.dart 注入）
   final VoidCallback? onOpenCamera;
 
-  const TranslateScreen({super.key, this.onOpenCamera});
+  /// 从历史页点条目复用：把原文/译文送回翻译页（由 main.dart 注入）
+  final ValueListenable<TranslateSeed?>? seed;
+
+  const TranslateScreen({super.key, this.onOpenCamera, this.seed});
 
   @override
   State<TranslateScreen> createState() => _TranslateScreenState();
+}
+
+/// 历史页回填用的一对文本
+class TranslateSeed {
+  final String src;
+  final String dst;
+  const TranslateSeed(this.src, this.dst);
 }
 
 class _TranslateScreenState extends State<TranslateScreen> {
@@ -51,14 +62,33 @@ class _TranslateScreenState extends State<TranslateScreen> {
     _srcController.addListener(_onInputChanged);
     // 生词本在别处被删/被标记时，本页星标同步刷新
     VocabStore.entries.addListener(_onVocabChanged);
+    widget.seed?.addListener(_applySeed);
   }
 
   @override
   void dispose() {
+    widget.seed?.removeListener(_applySeed);
     VocabStore.entries.removeListener(_onVocabChanged);
     _srcController.removeListener(_onInputChanged);
     _srcController.dispose();
     super.dispose();
+  }
+
+  TranslateSeed? _lastSeed;
+
+  /// 历史页点了某条记录：把原文/译文塞回输入框与译文卡
+  void _applySeed() {
+    final seed = widget.seed?.value;
+    if (seed == null || identical(seed, _lastSeed)) return;
+    _lastSeed = seed;
+    _spaceGuard = true;
+    _srcController.value = TextEditingValue(
+      text: seed.src,
+      selection: TextSelection.collapsed(offset: seed.src.length),
+    );
+    _spaceGuard = false;
+    setState(() => _dstText = seed.dst);
+    _toast('已载入这条历史');
   }
 
   void _onVocabChanged() {
