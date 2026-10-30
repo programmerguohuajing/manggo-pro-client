@@ -21,13 +21,36 @@ Windows 不能出 iOS 包，但**不是不能出包**——只是把编译这一
 
 推送到 `main` / `master` 且改动 `mobile/**` 时自动触发，或在 Actions 页面手动 `Run workflow` 选 `unsigned`。
 
-产物：Actions 运行详情页底部 Artifacts → `ios-unsigned-ipa` → `ManggoPro-unsigned-<run_number>.ipa`
+产物有两个出口，拿哪个都行：
+
+1. **Actions 运行详情页底部 Artifacts** → `ios-unsigned-ipa`
+2. **Release 固定直链**（推荐，免登录、可镜像加速）：
+   ```
+   https://github.com/programmerguohuajing/manggo-pro-client/releases/download/ios-latest/ManggoPro-<版本>-<构建号>-ios-unsigned.ipa
+   ```
+   同目录下还有 `version.json`，字段：`versionName / versionCode / bundleId / ipaName / ipaUrl / size / sha256 / signed / publishedAt / notes`，结构和 Android 的 `android-latest` 一致，后面接 App 内更新可以直接复用。
+
+Release tag 固定 `ios-latest`，每次先删再建，覆盖式发布，不会堆几百个 tag。
 
 这个 IPA 是标准 zip 结构（`Payload/Runner.app`），可以：
 - 用 Sideloadly / AltStore / TrollStore 在自己设备上重签安装
 - 用它验证编译链路是否健康
 
 **注意**：iOS 15+ 未签名 IPA 无法直接双击安装，必须有签名环节。
+
+---
+
+## 一之二、Windows 上把未签名 IPA 装进 iPhone（Sideloadly）
+
+整个流程不需要 Mac，也不需要开发者账号（用你自己的 Apple ID 免费签名）：
+
+1. 装 [Sideloadly](https://sideloadly.io/) 和 iTunes（或仅装 Apple 移动设备驱动），数据线连 iPhone，设备上点「信任」
+2. Sideloadly 里选设备 → `IPA` 选刚下载的文件 → `Apple ID` 填自己的（免费即可）→ Start
+3. 首次会要 Apple ID 密码和一次双重认证验证码（输在 Sideloadly 弹窗里，不是网页）
+4. 装完去 iPhone「设置 → 通用 → VPN 与设备管理」信任该开发者证书
+5. iOS 16+ 还要打开「设置 → 隐私与安全性 → 开发者模式」，重启后确认
+
+限制：免费账号签名 **7 天过期**，过期后 App 打不开，重跑一次 Sideloadly 即可（不用卸载重装，覆盖安装）。想长期有效就得用付费开发者账号出 ad-hoc 包（见下一节）。
 
 ---
 
@@ -93,6 +116,7 @@ detect-signing      探测 secrets 齐不齐
                         xcodebuild archive（Manual 签名 + PROFILE_NAME）
                         xcodebuild -exportArchive（ExportOptions.plist）
                         → IPA → 可选 altool 上传 TestFlight
+publish            有签名包发签名包，没有发未签名包 → Release ios-latest + version.json
 ```
 
 几个容易踩的点已经在文件里处理掉了：

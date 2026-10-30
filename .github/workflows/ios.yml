@@ -88,6 +88,8 @@ jobs:
     name: Unsigned IPA
     runs-on: macos-15
     timeout-minutes: 50
+    outputs:
+      version_name: ${{ steps.ver.outputs.version_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +110,16 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
 
+      - name: Resolve version
+        id: ver
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' pubspec.yaml | head -1)"
+          [ -n "$VERSION_NAME" ] || VERSION_NAME="0.0.0"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "版本名：$VERSION_NAME，构建号：$GITHUB_RUN_NUMBER"
+
       - name: Pod install (only if Podfile exists)
         working-directory: ${{ env.APP_DIR }}/ios
         run: |
@@ -122,6 +134,7 @@ jobs:
         run: flutter build ios --release --no-codesign
 
       - name: Package unsigned IPA
+        id: pkg
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
@@ -135,9 +148,10 @@ jobs:
           rm -rf "$OUT"
           mkdir -p "$OUT/Payload"
           cp -R "$APP" "$OUT/Payload/"
-          NAME="ManggoPro-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          NAME="ManggoPro-${{ steps.ver.outputs.version_name }}-${GITHUB_RUN_NUMBER}-ios-unsigned.ipa"
           ( cd "$OUT" && zip -qry "$NAME" Payload )
           ls -lh "$OUT"
+          echo "ipa_name=$NAME" >> "$GITHUB_OUTPUT"
           echo "UNSIGNED_IPA=$OUT/$NAME" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
@@ -145,6 +159,124 @@ jobs:
           name: ios-unsigned-ipa
           path: ${{ env.APP_DIR }}/build/ipa-unsigned/*.ipa
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 发布到 Release：有签名包就发签名包，没有就发未签名包
+  # tag 固定 ios-latest，覆盖式发布（先删再建），不会堆积 tag
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish iOS package
+    needs: [build-unsigned, build-signed]
+    if: >-
+      always() && !cancelled() &&
+      needs.build-unsigned.result == 'success' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download unsigned IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: dl-unsigned
+
+      - name: Download signed IPA
+        if: needs.build-signed.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-signed-ipa
+          path: dl-signed
+
+      - name: Build version.json
+        env:
+          VERSION_NAME: ${{ needs.build-unsigned.outputs.version_name }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.manggo.manggoPro' }}
+          COMMIT_NOTE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if ls dl-signed/*.ipa >/dev/null 2>&1; then
+            SRC="$(ls dl-signed/*.ipa | head -1)"
+            SIGNED=true; SUFFIX=signed
+          else
+            SRC="$(ls dl-unsigned/*.ipa | head -1)"
+            SIGNED=false; SUFFIX=unsigned
+          fi
+          NAME="ManggoPro-${VERSION_NAME}-${GITHUB_RUN_NUMBER}-ios-${SUFFIX}.ipa"
+          cp "$SRC" "dist/$NAME"
+          SIZE="$(stat -c%s "dist/$NAME")"
+          SHA="$(sha256sum "dist/$NAME" | awk '{print $1}')"
+          NOTE="${COMMIT_NOTE:-手动触发的构建}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/ios-latest/${NAME}"
+
+          echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "IPA_SIGNED=$SIGNED" >> "$GITHUB_ENV"
+
+          jq -n \
+            --arg platform ios \
+            --arg versionName "$VERSION_NAME" \
+            --argjson versionCode "$GITHUB_RUN_NUMBER" \
+            --arg bundleId "$BUNDLE_ID" \
+            --arg ipaName "$NAME" \
+            --arg ipaUrl "$URL" \
+            --argjson size "$SIZE" \
+            --arg sha256 "$SHA" \
+            --argjson signed "$SIGNED" \
+            --arg publishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg notes "$NOTE" \
+            '{platform: $platform, versionName: $versionName, versionCode: $versionCode,
+              bundleId: $bundleId, ipaName: $ipaName, ipaUrl: $ipaUrl, size: $size,
+              sha256: $sha256, signed: $signed, publishedAt: $publishedAt, notes: $notes}' \
+            > dist/version.json
+          cat dist/version.json
+          ls -lh dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ needs.build-unsigned.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          gh release delete ios-latest -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+
+          MIRROR="https://gh-proxy.com/https://github.com/${GITHUB_REPOSITORY}/releases/download/ios-latest"
+          if [ "$IPA_SIGNED" = "true" ]; then
+            TITLE="iOS $VERSION_NAME ($GITHUB_RUN_NUMBER) 已签名"
+            cat > body.md <<EOF
+          已签名 IPA，装到已注册 UDID 的设备或用 TestFlight 分发。
+
+          **文件：** \`$IPA_NAME\`
+          **校验：** 见 \`version.json\` 里的 size / sha256 字段
+          EOF
+          else
+            TITLE="iOS $VERSION_NAME ($GITHUB_RUN_NUMBER) 未签名"
+            cat > body.md <<EOF
+          **这是未签名 IPA，iPhone / iPad 不能直接点击安装，必须先重签。**
+
+          - Windows：用 Sideloadly 导入本 IPA，填自己的 Apple ID 重签后装到设备（免费账号签名 7 天有效，到期重签即可）
+          - macOS：Xcode → Window → Devices and Simulators，把 Runner.app 拖到设备上
+          - 已越狱设备：可直接安装
+
+          **文件：** \`$IPA_NAME\`
+
+          **直链：**
+          https://github.com/${GITHUB_REPOSITORY}/releases/download/ios-latest/$IPA_NAME
+
+          **国内加速镜像（GitHub 慢就用这个）：**
+          $MIRROR/$IPA_NAME
+
+          配好 iOS 签名 Secrets 后，这里会自动改成已签名包，步骤见 \`mobile/docs/ios-ci.md\`。
+          EOF
+          fi
+
+          gh release create ios-latest -R "$GITHUB_REPOSITORY" dist/*.ipa dist/version.json \
+            --title "$TITLE" \
+            --prerelease \
+            --notes-file body.md
+          gh release view ios-latest -R "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name)  \(.size) bytes"'
 
   # ---------------------------------------------------------------------------
   # 已签名 IPA：需证书 p12 + mobileprovision + Team ID
