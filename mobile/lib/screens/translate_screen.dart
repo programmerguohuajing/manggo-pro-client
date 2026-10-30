@@ -264,7 +264,11 @@ class _TranslateScreenState extends State<TranslateScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('翻译',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      height: 1.2)),
               Row(
                 children: [
                   _topAction(Icons.mic_none_rounded,
