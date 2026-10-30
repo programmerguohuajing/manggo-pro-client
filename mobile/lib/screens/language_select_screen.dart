@@ -14,14 +14,17 @@ class LanguageSelectScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: isDark ? const Color(0x0AFFFFFF) : const Color(0x0A000000)),
+            bottom: BorderSide(
+                color:
+                    isDark ? const Color(0x0AFFFFFF) : const Color(0x0A000000)),
           ),
         ),
         child: Row(
           children: [
             Flag(lang.flag, size: 24),
             const SizedBox(width: 12),
-            Expanded(child: Text(lang.name, style: const TextStyle(fontSize: 15.5))),
+            Expanded(
+                child: Text(lang.name, style: const TextStyle(fontSize: 15.5))),
             if (checked)
               const Icon(Icons.check_rounded, color: Manggo.primary, size: 20),
           ],
@@ -34,7 +37,9 @@ class LanguageSelectScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
         child: Text(title,
             style: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF8A9099))),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF8A9099))),
       );
 
   @override
@@ -46,7 +51,8 @@ class LanguageSelectScreen extends StatelessWidget {
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text('选择语言', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        title: const Text('选择语言',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
       ),
       body: Column(
         children: [
@@ -55,15 +61,20 @@ class LanguageSelectScreen extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF262A2F) : const Color(0xFFF4F6F7),
-                border: Border.all(color: isDark ? const Color(0x1AFFFFFF) : const Color(0x14000000)),
+                color:
+                    isDark ? const Color(0xFF262A2F) : const Color(0xFFF4F6F7),
+                border: Border.all(
+                    color: isDark
+                        ? const Color(0x1AFFFFFF)
+                        : const Color(0x14000000)),
                 borderRadius: BorderRadius.circular(13),
               ),
               child: const Row(
                 children: [
                   Icon(Icons.search, size: 18, color: Color(0xFF8A9099)),
                   SizedBox(width: 9),
-                  Text('搜索语言', style: TextStyle(color: Color(0xFF8A9099), fontSize: 14)),
+                  Text('搜索语言',
+                      style: TextStyle(color: Color(0xFF8A9099), fontSize: 14)),
                 ],
               ),
             ),

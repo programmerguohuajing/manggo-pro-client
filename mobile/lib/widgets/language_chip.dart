@@ -31,7 +31,8 @@ class LanguageChip extends StatelessWidget {
                 child: Text(
                   label,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600),
                 ),
               ),
               const Icon(Icons.keyboard_arrow_down_rounded, size: 18),

@@ -41,9 +41,11 @@ class Manggo {
     dividerColor: const Color(0x14000000),
     cardColor: const Color(0xFFFFFFFF),
     textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Color(0xFF10131A), fontSize: 15.5, height: 1.6),
+      bodyLarge:
+          TextStyle(color: Color(0xFF10131A), fontSize: 15.5, height: 1.6),
       bodyMedium: TextStyle(color: Color(0xFF5B626B), fontSize: 14),
-      titleLarge: TextStyle(color: Color(0xFF10131A), fontSize: 20, fontWeight: FontWeight.w700),
+      titleLarge: TextStyle(
+          color: Color(0xFF10131A), fontSize: 20, fontWeight: FontWeight.w700),
       labelSmall: TextStyle(color: Color(0xFF8A9099), fontSize: 11.5),
     ),
     iconTheme: const IconThemeData(color: Color(0xFF5B626B)),
@@ -75,9 +77,11 @@ class Manggo {
     dividerColor: const Color(0x1AFFFFFF),
     cardColor: const Color(0xFF1C1E22),
     textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Color(0xFFEDEFF1), fontSize: 15.5, height: 1.6),
+      bodyLarge:
+          TextStyle(color: Color(0xFFEDEFF1), fontSize: 15.5, height: 1.6),
       bodyMedium: TextStyle(color: Color(0xCCEDEFF1), fontSize: 14),
-      titleLarge: TextStyle(color: Color(0xFFEDEFF1), fontSize: 20, fontWeight: FontWeight.w700),
+      titleLarge: TextStyle(
+          color: Color(0xFFEDEFF1), fontSize: 20, fontWeight: FontWeight.w700),
       labelSmall: TextStyle(color: Color(0x9EEDEFF1), fontSize: 11.5),
     ),
     iconTheme: const IconThemeData(color: Color(0xCCEDEFF1)),

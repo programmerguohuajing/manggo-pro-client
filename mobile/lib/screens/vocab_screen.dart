@@ -13,18 +13,22 @@ class VocabScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('生词本',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          const Text('长按可删除 · 点击可加入复习', style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
-          const SizedBox(height: 14),
-          ..._words.map((w) => _item(context, w)),
-        ],
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('生词本',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text('长按可删除 · 点击可加入复习',
+                style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
+            const SizedBox(height: 14),
+            ..._words.map((w) => _item(context, w)),
+          ],
+        ),
       ),
     );
   }
@@ -44,14 +48,19 @@ class VocabScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(w['word']!, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+                Text(w['word']!,
+                    style: const TextStyle(
+                        fontSize: 15.5, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
-                Text(w['mean']!, style: const TextStyle(fontSize: 13, color: Color(0xFF8A9099))),
+                Text(w['mean']!,
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFF8A9099))),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.volume_up_outlined, color: Color(0xFF8A9099)),
+            icon:
+                const Icon(Icons.volume_up_outlined, color: Color(0xFF8A9099)),
             onPressed: () {},
           ),
           IconButton(

@@ -23,7 +23,8 @@ class _ManggoAppState extends State<ManggoApp> {
 
   bool get _isDark {
     final platformDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
     return _themeMode == ThemeMode.dark ||
         (_themeMode == ThemeMode.system && platformDark);
   }
@@ -43,19 +44,17 @@ class _ManggoAppState extends State<ManggoApp> {
         // 状态栏图标明暗跟随主题，避免浅色底上白字看不清
         value: _isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
         child: Scaffold(
-          // Scaffold 没有 appBar 时 body 会顶到屏幕最上沿，必须用 SafeArea 让出状态栏
-          body: SafeArea(
-            bottom: false,
-            child: IndexedStack(
-              index: _tab,
-              children: [
-                const TranslateScreen(),
-                const HistoryScreen(),
-                const VocabScreen(),
-                SettingsScreen(dark: _isDark, onToggleDark: _onThemeChanged),
-                const OcrScreen(),
-              ],
-            ),
+          // 安全区由各屏幕自己处理：浅色页用 SafeArea 避让状态栏，
+          // OCR 页需要深色背景全屏铺到状态栏之后，故不在此统一加。
+          body: IndexedStack(
+            index: _tab,
+            children: [
+              const TranslateScreen(),
+              const HistoryScreen(),
+              const VocabScreen(),
+              SettingsScreen(dark: _isDark, onToggleDark: _onThemeChanged),
+              const OcrScreen(),
+            ],
           ),
           bottomNavigationBar: AppDock(
             currentIndex: _tab,

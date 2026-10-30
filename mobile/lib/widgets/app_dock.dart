@@ -59,7 +59,8 @@ class AppDock extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           color: color,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
                     ],

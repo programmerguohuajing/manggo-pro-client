@@ -14,18 +14,22 @@ class HistoryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('历史记录',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          const Text('本地存储 · 失败不写入', style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
-          const SizedBox(height: 14),
-          ..._items.map((it) => _item(context, it)),
-        ],
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('历史记录',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text('本地存储 · 失败不写入',
+                style: TextStyle(color: Color(0xFF8A9099), fontSize: 12)),
+            const SizedBox(height: 14),
+            ..._items.map((it) => _item(context, it)),
+          ],
+        ),
       ),
     );
   }
@@ -43,13 +47,17 @@ class HistoryScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(it['src']!, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+          Text(it['src']!,
+              style:
+                  const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text(it['dst']!, style: const TextStyle(fontSize: 14, color: Color(0xFF8A9099))),
+          Text(it['dst']!,
+              style: const TextStyle(fontSize: 14, color: Color(0xFF8A9099))),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
-            child: Text(it['time']!, style: const TextStyle(fontSize: 11, color: Color(0xFF8A9099))),
+            child: Text(it['time']!,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF8A9099))),
           ),
         ],
       ),

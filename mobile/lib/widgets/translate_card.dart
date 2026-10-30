@@ -45,11 +45,14 @@ class TranslateCard extends StatelessWidget {
               ),
               Row(
                 children: const [
-                  Icon(Icons.volume_up_outlined, size: 18, color: Color(0xFF8A9099)),
+                  Icon(Icons.volume_up_outlined,
+                      size: 18, color: Color(0xFF8A9099)),
                   SizedBox(width: 16),
-                  Icon(Icons.content_copy_outlined, size: 18, color: Color(0xFF8A9099)),
+                  Icon(Icons.content_copy_outlined,
+                      size: 18, color: Color(0xFF8A9099)),
                   SizedBox(width: 16),
-                  Icon(Icons.star_border_rounded, size: 18, color: Color(0xFF8A9099)),
+                  Icon(Icons.star_border_rounded,
+                      size: 18, color: Color(0xFF8A9099)),
                 ],
               ),
             ],
