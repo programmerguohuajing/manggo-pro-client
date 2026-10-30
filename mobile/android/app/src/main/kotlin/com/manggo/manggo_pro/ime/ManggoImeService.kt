@@ -142,6 +142,7 @@ class ManggoImeService : InputMethodService() {
         val text = if (shiftOn) ch.uppercaseChar().toString() else ch.toString()
         currentInputConnection?.commitText(text, 1)
         spaceTaps = 0
+        resetStatusIfIdle()
         if (shiftOn) {
             shiftOn = false
             refreshKeyboard()
@@ -167,6 +168,16 @@ class ManggoImeService : InputMethodService() {
             ic.deleteSurroundingText(1, 0)
         }
         spaceTaps = 0
+        resetStatusIfIdle()
+    }
+
+    /**
+     * 翻译完成后用户继续打字时，把空格键上的「已翻译 ✓」换回提示文案，
+     * 否则状态会一直挂着，看起来像还没处理完。
+     * 请求进行中不改，免得把「翻译中…」冲掉。
+     */
+    private fun resetStatusIfIdle() {
+        if (!translating && spaceKey?.text != STATUS_IDLE) setStatus(STATUS_IDLE)
     }
 
     private fun commitEnter() {

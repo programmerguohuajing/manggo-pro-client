@@ -335,6 +335,9 @@ class _TranslateScreenState extends State<TranslateScreen> {
                       child: Container(
                         width: 48,
                         height: 48,
+                        // 不设 alignment 时子节点会被撑到 48×48，
+                        // 进度圈就跑到按钮边缘外、被绿底挡住只看得到半圈
+                        alignment: Alignment.center,
                         decoration: BoxDecoration(
                           gradient: Manggo.fabGradient,
                           shape: BoxShape.circle,
