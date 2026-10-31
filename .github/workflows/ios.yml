@@ -106,6 +106,12 @@ jobs:
           flutter --version
           xcodebuild -version
 
+      - name: Xcode targets
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: |
+          # 手工改过 project.pbxproj，这一步能第一时间暴露工程文件是否有问题
+          xcodebuild -list -project Runner.xcodeproj
+
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
@@ -157,6 +163,16 @@ jobs:
           rm -rf "$OUT"
           mkdir -p "$OUT/Payload"
           cp -R "$APP" "$OUT/Payload/"
+
+          # 键盘扩展必须真的被打进 App，否则「三连空格翻译」在设备上根本不存在
+          APPEX="$APP/PlugIns/ManggoKeyboard.appex"
+          if [ ! -d "$APPEX" ]; then
+            echo "::error::键盘扩展没有被打包：缺少 $APPEX"
+            ls "$APP/PlugIns" 2>/dev/null || echo "（连 PlugIns 目录都没有）"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$APPEX/Info.plist"
+
           NAME="ManggoPro-${{ steps.ver.outputs.version_name }}-${GITHUB_RUN_NUMBER}-ios-unsigned.ipa"
           ( cd "$OUT" && zip -qry "$NAME" Payload )
           ls -lh "$OUT"
