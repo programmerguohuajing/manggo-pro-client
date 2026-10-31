@@ -7,8 +7,8 @@ import { ImeBridge } from './ImeBridge';
  *
  * 与 Android 的 ManggoImeService、iOS 的 KeyboardViewController 对应：
  * 软键盘界面由 pages/KeyboardPanel 绘制，本 Ability 只负责
- * 1) 接住系统给的 InputClient（读写输入框内容的唯一通道）
- * 2) 创建软键盘面板并挂上 ArkUI 页面
+ * 1. 接住系统给的 InputClient（读写输入框内容的唯一通道）
+ * 2. 创建软键盘面板并挂上 ArkUI 页面
  *
  * 启用路径：设置 → 系统 → 输入法 → 更多输入法 → 启用「Manggo 翻译键盘」，
  * 再切到它。
