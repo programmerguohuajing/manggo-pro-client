@@ -11,8 +11,8 @@
 | 平台 | 实现基类 | 启用路径 | 当前状态 |
 | --- | --- | --- | --- |
 | Android | `InputMethodService` | 设置 → 系统 → 语言和输入法 → 启用 + 切换 | ✅ 已实现并真机验证 |
-| iOS | `UIInputViewController`（Keyboard Extension） | 设置 → 通用 → 键盘 → 添加新键盘 → 允许完全访问 | ⏳ 需 Xcode 工程与签名 |
-| HarmonyOS NEXT | `InputMethodExtensionAbility` | 设置 → 系统 → 输入法 → 启用 | ⏳ 需 DevEco + IME Kit |
+| iOS | `UIInputViewController`（Keyboard Extension） | 设置 → 通用 → 键盘 → 添加新键盘 → 允许完全访问 | ✅ 已实现，CI 出包带 appex |
+| HarmonyOS NEXT | `InputMethodExtensionAbility` | 设置 → 系统 → 输入法 → 启用 | ✅ 已实现，待 DevEco 编译 |
 
 ## Android（已落地）
 
@@ -69,45 +69,103 @@ adb shell settings get secure default_input_method   # 确认已切换
 > 注意：`ime set` 之后偶发不生效，需要再执行一次或用
 > `settings put secure default_input_method ...`。
 
-## iOS（待实现，需 macOS + Xcode）
+## iOS（已落地，CI 出包验证）
 
-1. 在 Xcode 工程里新增 **Keyboard Extension** target（`ManggoKeyboard`）。
-2. `Info.plist` 里 `NSExtensionPointIdentifier` = `com.apple.keyboard-service`，
-   `RequestsOpenAccess` = YES（不加完全访问权限无法访问网络，也无法读取部分输入框内容）。
-3. 核心逻辑：
-   ```swift
-   // 读取光标前文本
-   let ctx = textDocumentProxy.documentContextBeforeInput ?? ""
-   let line = ctx.components(separatedBy: "\n").last ?? ""
-   // 删除原文并写入译文
-   for _ in 0..<line.count { textDocumentProxy.deleteBackward() }
-   textDocumentProxy.insertText(translated)
-   ```
-4. 三连空格判定与 Android 一致，`deleteBackward()` 只作用于当前光标位置。
-5. 局限：iOS 不允许键盘扩展读取 `secureTextEntry` 字段（系统层面就取不到）。
-6. 需要 Apple 开发者账号做签名，且用户必须在「设置 → 通用 → 键盘」里手动添加并授予完全访问。
+代码位置 `mobile/ios/ManggoKeyboard/`：
 
-## HarmonyOS NEXT（待实现，需 DevEco Studio）
+| 文件 | 职责 |
+| --- | --- |
+| `KeyboardViewController.swift` | 键盘 UI（`UIInputViewController`）+ 三连空格触发 |
+| `KeyboardTranslator.swift` | 翻译接口 + 离线词表，逻辑与 Android 的 `RemoteTranslator` 一致 |
+| `Info.plist` | `NSExtension` 声明，`RequestsOpenAccess = YES` |
 
-1. 新建 `InputMethodExtensionAbility`（IME Kit）。
-2. 在 `module.json5` 里声明 `extensionAbilities`，`type` 为 `inputMethod`，
-   并配置 `metadata` 指向 `input_method_config`。
-3. 通过 IME Kit 的 `InputClient` 拿文本与写回：
-   ```ts
-   const client = await inputMethodAbility.getInputClient();
-   const before = await client.getForward(1000);   // 光标前文本
-   await client.deleteForward(line.length);
-   await client.insertText(translated);
-   ```
-4. 键盘 UI 用 ArkUI 自定义，三连空格判定与 Android 一致。
+工程侧改动（`Runner.xcodeproj/project.pbxproj`）：
 
-## 接入真实翻译服务
+- 新增 `ManggoKeyboard` target，`productType = com.apple.product-type.app-extension`，
+  bundle id `com.manggo.manggoPro.ManggoKeyboard`
+- Runner target 增加 `Embed App Extensions` 拷贝阶段（`dstSubfolderSpec = 13`）与 target 依赖
+- 扩展的 Build Configuration 复用 `Flutter/Debug.xcconfig` / `Release.xcconfig`，
+  这样 `CFBundleShortVersionString` / `CFBundleVersion` 与主 App 完全一致
+- CI 打包前会断言 `build/ios/iphoneos/Runner.app/PlugIns/ManggoKeyboard.appex` 存在，
+  缺了直接红叉（否则装到手机上根本没有这个键盘）
 
-三端当前都用本地词表，替换点很集中：
+启用（必须在设备上手动做，iOS 不允许 App 代劳）：
 
-- Android：`DemoTranslator.translate()` → 改成异步请求，在回调里 `commitText`
-- iOS：同上，在 `URLSession` 回调里操作 `textDocumentProxy`
-- HarmonyOS：在 Promise 回调里操作 `InputClient`
+1. 设置 → 通用 → 键盘 → 键盘 → 添加新键盘 → 选 **Manggo**
+2. 点刚加上的 **Manggo**，打开「允许完全访问」——**不开就没网**，三连空格只会提示
+   「需开启「允许完全访问」」
 
-先删原文再请求会有一小段空白；更稳的做法是**先请求、成功后一次性替换**，
-把「翻译中…」显示在键盘的空格键上（Android 已这么做）。
+行为对齐点：
+
+| 行为 | 实现方式 |
+| --- | --- |
+| 三连空格（1.5s 窗口） | `onSpace()` 计数，第 3 次不插入空格直接翻译 |
+| 只翻当前行 | `documentContextBeforeInput` 按 `\n` 取最后一段 |
+| 先请求后替换 | 译完校验 `now.hasSuffix(line)`，原文没变才 `deleteBackward()` 逐字删 |
+| 密码框 | iOS 系统层就不把 secure 内容交给键盘，读到的为空 → 提示「此输入框不支持读取」 |
+| 状态文案 | 与 Android 同一套：`空格 ×3 翻译这一段` / `翻译中…` / `已翻译 ✓` / `已翻译 ✓（离线词表）` / `翻译失败，请检查网络` / `内容已变化，已取消` |
+
+与 Android 的两点差异：
+
+- 多一个 **🌐** 键调 `advanceToNextInputMode()`，否则用户切不回别的键盘
+- 部分 App（尤其 WebView 内）的 `documentContextBeforeInput` 返回 nil，此时只能提示不支持；
+  Android 侧可以稳定拿到 1000 字符
+
+> 安装仍未签名，见 `ios-ci.md`：Windows 上用 Sideloadly 重签，或配好 4 个 Secrets 出 ad-hoc 包。
+
+## HarmonyOS NEXT（已落地，需 DevEco 编译）
+
+代码位置 `mobile/harmony/entry/src/main/`：
+
+| 文件 | 职责 |
+| --- | --- |
+| `ets/inputmethod/ManggoImeAbility.ets` | `InputMethodExtensionAbility`，接 `InputClient` + 创建软键盘面板 |
+| `ets/inputmethod/KeyboardTranslator.ets` | 翻译接口（`@kit.NetworkKit`）+ 离线词表 |
+| `ets/inputmethod/ImeBridge.ets` | Ability 与面板页面之间的桥（共享 `InputClient`） |
+| `ets/pages/KeyboardPanel.ets` | ArkUI 自绘键盘 + 三连空格逻辑 |
+| `profile/input_method_config.json` | 输入法元信息（名称、图标、语言、版本） |
+
+`module.json5` 的注册要点：
+
+```json5
+"requestPermissions": [{ "name": "ohos.permission.INTERNET", ... }],
+"extensionAbilities": [{
+  "name": "ManggoImeAbility",
+  "srcEntry": "./ets/inputmethod/ManggoImeAbility.ets",
+  "type": "inputMethod",
+  "exported": true,
+  "metadata": [{ "name": "ohos.extension.input_method",
+                 "resource": "$profile:input_method_config" }]
+}]
+```
+
+启用：设置 → 系统 → 输入法 → 更多输入法 → 启用「Manggo 翻译键盘」→ 切换。
+
+读写输入框走 `InputClient`：
+
+```ts
+const before = await client.getForward(1000);     // 光标前文本
+await client.deleteForward(line.length);          // 删除光标前文本
+await client.insertText(translated);
+await client.sendKeyFunction({ keyCode: 2054 });  // 回车
+```
+
+> **这块代码没有在本机编译过**（Windows 上没有 DevEco / HarmonyOS SDK）。
+> 如果 `panel.PanelInfo` / `inputMethodAbility.on('inputStart')` 的签名与你装的 SDK 版本不一致，
+> 需要改的地方集中在 `ManggoImeAbility.ets` 一个文件里，其余逻辑与 UI 不依赖这些 API 细节。
+> 另外 `getForward` / `deleteForward` 在 OHOS 里的语义是「光标前」，
+> 与 Android 的 `getTextBeforeCursor` 对齐，接入时建议先用一个输入框验证删除方向。
+
+## 三端一致性对照
+
+| 能力 | Android | iOS | HarmonyOS |
+| --- | --- | --- | --- |
+| 自绘 QWERTY | ✅ | ✅ | ✅ |
+| 三连空格 1.5s 窗口 | ✅ | ✅ | ✅ |
+| 只翻当前行 | ✅ | ✅ | ✅ |
+| 原文校验失败则放弃替换 | ✅ | ✅ | ✅ |
+| 真实网络翻译 | ✅ | ✅ | ✅ |
+| 离线词表兜底 | ✅ | ✅ | ✅ |
+| 状态文案 | ✅ | ✅ | ✅ |
+| 密码框保护 | ✅ 读 `inputType` | ⚠️ 系统不给内容 | ⚠️ 依赖 InputClient 返回空 |
+| 编译验证 | ✅ 真机 | ✅ CI 出包 | ❌ 待 DevEco |
