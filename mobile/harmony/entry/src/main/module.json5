@@ -11,6 +11,19 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:ime_net_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility",
+            "ManggoImeAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",
@@ -29,6 +42,23 @@
             "actions": [
               "action.system.home"
             ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "ManggoImeAbility",
+        "srcEntry": "./ets/inputmethod/ManggoImeAbility.ets",
+        "label": "$string:ime_label",
+        "description": "$string:ime_desc",
+        "icon": "$media:icon",
+        "type": "inputMethod",
+        "exported": true,
+        "metadata": [
+          {
+            "name": "ohos.extension.input_method",
+            "resource": "$profile:input_method_config"
           }
         ]
       }

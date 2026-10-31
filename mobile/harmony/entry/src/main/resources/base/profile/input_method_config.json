@@ -1,0 +1,21 @@
+{
+  "name": "$string:ime_label",
+  "id": "ManggoIme",
+  "fileIcon": "$media:icon",
+  "fileKeyboardIcon": "$media:icon",
+  "locale": "$string:ime_locale",
+  "language": "$string:ime_language",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "description": "$string:ime_desc",
+  "supportedLocales": [
+    {
+      "locale": "$string:ime_locale",
+      "language": "$string:ime_language"
+    },
+    {
+      "locale": "$string:ime_locale_en",
+      "language": "$string:ime_language_en"
+    }
+  ]
+}

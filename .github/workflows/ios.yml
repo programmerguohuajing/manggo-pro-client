@@ -106,15 +106,18 @@ jobs:
           flutter --version
           xcodebuild -version
 
-      - name: Xcode targets
-        working-directory: ${{ env.APP_DIR }}/ios
-        run: |
-          # 手工改过 project.pbxproj，这一步能第一时间暴露工程文件是否有问题
-          xcodebuild -list -project Runner.xcodeproj
-
       - name: Flutter pub get
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
+
+      - name: Xcode targets
+        working-directory: ${{ env.APP_DIR }}/ios
+        run: |
+          # 必须放在 pub get 之后：工程引用了 flutter 生成的
+          # Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage，
+          # 该目录还没生成时 xcodebuild 连 -list 都会失败（exit 74）。
+          # 手工改过 project.pbxproj，这一步用来第一时间暴露工程文件问题
+          xcodebuild -list -project Runner.xcodeproj
 
       - name: Resolve version
         id: ver

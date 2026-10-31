@@ -11,6 +11,34 @@
     {
       "name": "EntryAbility_label",
       "value": "Manggo Pro"
+    },
+    {
+      "name": "ime_label",
+      "value": "Manggo 翻译键盘"
+    },
+    {
+      "name": "ime_desc",
+      "value": "连按三次空格，把光标所在这一段翻译并原地替换"
+    },
+    {
+      "name": "ime_locale",
+      "value": "zh-CN"
+    },
+    {
+      "name": "ime_language",
+      "value": "中文"
+    },
+    {
+      "name": "ime_locale_en",
+      "value": "en-US"
+    },
+    {
+      "name": "ime_language_en",
+      "value": "English"
+    },
+    {
+      "name": "ime_net_reason",
+      "value": "用于把输入框里的文字送到翻译服务并取回译文"
     }
   ]
 }
