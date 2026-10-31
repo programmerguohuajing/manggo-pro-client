@@ -178,6 +178,10 @@ jobs:
 
           cat dist/version.json
           gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
+          # 必须 --prerelease：否则它会成为仓库的 "latest release"，
+          # 桌面端更新器与站点的 /releases/latest 都会指到这个 APK，
+          # 桌面版 vX.Y.Z 反而被挤下去（与 iOS 的 ios-latest 保持一致）。
           gh release create android-latest dist/*.apk dist/version.json \
+            --prerelease \
             --title "Android 最新构建 ${VER_NAME} (${VER_CODE})" \
             --notes "自动构建于 ${STAMP}，提交 ${GITHUB_SHA:0:7}。App 内「设置 → 检查更新」可直接升级。"
